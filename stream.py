@@ -48,12 +48,14 @@ driver.get(current_url)
 
 RTMP_KEY = os.environ.get('RTMP_KEY')
 
-# 3️⃣ محرك FFmpeg (تصوير الشاشة كاملة 720x1120)
+# 3️⃣ محرك FFmpeg (تم تعديله لإرسال صوت صامت بدلاً من PulseAudio)
 ffmpeg_cmd = [
     'ffmpeg', '-y',
     '-thread_queue_size', '4096',
     '-f', 'x11grab', '-framerate', '60', '-video_size', '720x1120', '-i', os.environ['DISPLAY'],
-    '-f', 'pulse', '-i', 'default',
+    # --- تعديل الصوت هنا ---
+    '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100', 
+    # ----------------------
     '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', 
     '-b:v', '4500k', '-maxrate', '4500k', '-bufsize', '9000k',
     '-pix_fmt', 'yuv420p', '-g', '120', 
