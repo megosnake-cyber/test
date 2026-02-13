@@ -67,11 +67,13 @@ if not RTMP_KEY:
 ffmpeg_cmd = [
     'ffmpeg', '-y',
     '-thread_queue_size', '4096',
-    '-f', 'x11grab', '-framerate', '30', '-video_size', '720x1120', '-i', display_port,
-    '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100', # 👈 هذا هو السطر الذي يحل مشكلتك
-    '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency', 
-    '-b:v', '2500k', '-maxrate', '2500k', '-bufsize', '5000k',
-    '-pix_fmt', 'yuv420p', '-g', '60', 
+    '-f', 'x11grab', '-framerate', '60', '-video_size', '720x1400', '-i', os.environ['DISPLAY'],
+    '-f', 'pulse', '-i', 'default',
+    # 🟢 الفلتر القاطع: يقص أول 120 بكسل ويأخذ 1280 بكسل طول صافي
+    '-vf', 'crop=720:1280:0:120', 
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', 
+    '-b:v', '5000k', '-maxrate', '5000k', '-bufsize', '10000k',
+    '-pix_fmt', 'yuv420p', '-g', '120', 
     '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
     '-f', 'flv', f"rtmp://a.rtmp.youtube.com/live2/{RTMP_KEY}"
 ]
