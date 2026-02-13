@@ -62,19 +62,18 @@ if not RTMP_KEY:
     disp.stop()
     exit(1)
 
-# 3️⃣ محرك FFmpeg (تم حل مشكلة التزامن تماماً هنا)
+# 3️⃣ محرك FFmpeg (بإعدادات المزامنة اللحظية الخاصة بك)
 ffmpeg_cmd = [
     'ffmpeg', '-y',
-    '-thread_queue_size', '4096',
-    '-f', 'x11grab', '-draw_mouse', '0', '-framerate', '30', '-video_size', '720x1120', '-i', display_port,
-    '-thread_queue_size', '4096',
-    '-f', 'pulse', '-i', 'auto_null.monitor',
+    '-thread_queue_size', '8192', # زيادة الذاكرة لمنع التأخير
+    '-f', 'x11grab', '-draw_mouse', '0', '-framerate', '60', '-video_size', '720x1120', '-i', display_port,
+    '-thread_queue_size', '8192', # زيادة ذاكرة الصوت أيضاً
+    '-f', 'pulse', '-i', 'auto_null.monitor', # 👈 التقاط الصوت الوهمي لمنع انهيار السيرفر
+    '-af', 'aresample=async=1:min_hard_comp=0.100000:first_pts=0', # 🟢 مزامنة الصوت لحظياً (حسب إعداداتك)
     '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', 
-    '-b:v', '2500k', '-maxrate', '2500k', '-bufsize', '5000k',
-    '-pix_fmt', 'yuv420p', '-g', '60', '-r', '30',
-    '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
-    '-af', 'aresample=async=1', # 👈 مزامنة الصوت
-    '-vsync', 'cfr',            # 👈 إجبار إطارات الصورة على الثبات لمنع التأخير
+    '-b:v', '5000k', '-maxrate', '5000k', '-bufsize', '10000k',
+    '-pix_fmt', 'yuv420p', '-r', '60', '-vsync', 'cfr', # 🟢 إجبار ثبات الفريمات على 60
+    '-g', '120', '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
     '-f', 'flv', f"rtmp://a.rtmp.youtube.com/live2/{RTMP_KEY}"
 ]
 
