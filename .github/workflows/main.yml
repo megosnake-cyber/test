@@ -1,7 +1,7 @@
 name: Live Stream Bot
 
 on:
-  workflow_dispatch: # تشغيل يدوي
+  workflow_dispatch:
 
 jobs:
   build:
@@ -25,7 +25,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg xvfb
+          sudo apt-get install -y ffmpeg xvfb pulseaudio
 
       - name: Install Python Dependencies
         run: |
@@ -34,4 +34,6 @@ jobs:
       - name: Run Stream
         env:
           RTMP_KEY: ${{ secrets.RTMP_KEY }}
-        run: python stream.py
+        run: |
+          pulseaudio -D --exit-idle-time=-1
+          python stream.py
