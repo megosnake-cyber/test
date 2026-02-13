@@ -10,7 +10,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 # --- 🛠️ إعدادات التحكم عن بعد (عدل اسم المستودع هنا) ---
 GITHUB_USER = "megosnake-cyber" 
-REPO_NAME = "tets" # 👈 تم وضع اسم المستودع الجديد هنا
+REPO_NAME = "test" # 👈 تم وضع اسم المستودع الجديد هنا
 URL_FILE_RAW = f"https://raw.githubusercontent.com/{GITHUB_USER}/{REPO_NAME}/main/url.txt"
 
 def get_remote_data():
