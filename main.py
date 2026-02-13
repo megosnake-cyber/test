@@ -7,7 +7,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
 # --- 🛠️ إعدادات التحكم والروابط ---
-CONTROL_URL = "https://yourdomain.com/url.txt" # رابط التحكم الخاص بك
+CONTROL_URL = "https://meja.do.am/asd/url.txt" # رابط التحكم الخاص بك
 DEFAULT_URL = "https://meja.do.am/asd/obs1.html"
 
 def get_live_url():
