@@ -61,16 +61,20 @@ if not RTMP_KEY:
     disp.stop()
     exit(1)
 
-# 3️⃣ محرك FFmpeg (الآن يلتقط الصوت الفعلي من كارت الصوت الوهمي)
+# 3️⃣ محرك FFmpeg (مع حل مشكلة تزامن الصوت والصورة)
 ffmpeg_cmd = [
     'ffmpeg', '-y',
+    '-use_wallclock_as_timestamps', '1', # 👈 توحيد التوقيت للصورة
     '-thread_queue_size', '4096',
     '-f', 'x11grab', '-framerate', '30', '-video_size', '720x1120', '-i', display_port,
-    '-f', 'pulse', '-i', 'auto_null.monitor', # 👈 التقاط الصوت الوهمي الذي يرسله كروم
-    '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency', 
+    '-use_wallclock_as_timestamps', '1', # 👈 توحيد التوقيت للصوت
+    '-thread_queue_size', '4096',        # 👈 ذاكرة تخزين مؤقتة للصوت لمنع التقطيع
+    '-f', 'pulse', '-i', 'auto_null.monitor',
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', # 👈 تقليل الحمل على المعالج لأقصى درجة
     '-b:v', '2500k', '-maxrate', '2500k', '-bufsize', '5000k',
-    '-pix_fmt', 'yuv420p', '-g', '60', 
+    '-pix_fmt', 'yuv420p', '-g', '60', '-r', '30',
     '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
+    '-af', 'aresample=async=1',          # 👈 فلتر المزامنة الإجبارية للصوت مع الصورة
     '-f', 'flv', f"rtmp://a.rtmp.youtube.com/live2/{RTMP_KEY}"
 ]
 
