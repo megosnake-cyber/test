@@ -51,7 +51,7 @@ driver = webdriver.Chrome(service=service, options=opts)
 
 # جلب مبدئي
 all_urls, switch_interval = get_remote_data()
-current_url = all_urls[0] if all_urls else "https://google.com"
+current_url = all_urls[0] if all_urls else "https://meja.do.am/asd/obs1.html"
 driver.get(current_url)
 
 RTMP_KEY = os.environ.get('RTMP_KEY')
