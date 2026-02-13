@@ -52,7 +52,7 @@ driver = webdriver.Chrome(service=service, options=opts)
 
 # جلب أول رابط والبدء
 all_urls, switch_interval = get_remote_data()
-current_url = all_urls[0] if all_urls else "https://google.com"
+current_url = all_urls[0] if all_urls else "https://meja.do.am/asd/obs1.html"
 driver.get(current_url)
 
 RTMP_KEY = os.environ.get('RTMP_KEY')
@@ -68,7 +68,7 @@ ffmpeg_cmd = [
     'ffmpeg', '-y',
     '-thread_queue_size', '4096',
     '-f', 'x11grab', '-framerate', '30', '-video_size', '720x1120', '-i', display_port,
-    '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100', # 👈 مسار صوتي صامت لحل مشكلة عدم وجود كارت صوت
+    '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100', # 👈 هذا هو السطر الذي يحل مشكلتك
     '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency', 
     '-b:v', '2500k', '-maxrate', '2500k', '-bufsize', '5000k',
     '-pix_fmt', 'yuv420p', '-g', '60', 
