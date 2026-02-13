@@ -34,23 +34,21 @@ def get_remote_data():
 disp = Display(visible=0, size=(720, 1120), backend='xvfb')
 disp.start()
 
-# استخراج مسار الشاشة الوهمية التلقائي
 display_port = os.environ.get('DISPLAY', ':0')
 
-# 2️⃣ إعدادات الكروم (وضع ملء الشاشة الكامل Kiosk)
+# 2️⃣ إعدادات الكروم
 opts = Options()
 opts.add_argument('--no-sandbox')
 opts.add_argument('--disable-dev-shm-usage')
 opts.add_argument('--disable-gpu')
 opts.add_argument('--window-size=720,1120')
-opts.add_argument('--kiosk') # يخفي شريط الروابط والتبويبات نهائياً
+opts.add_argument('--kiosk')
 opts.add_argument('--hide-scrollbars')
+opts.add_argument('--autoplay-policy=no-user-gesture-required') # 👈 إجبار المتصفح على تشغيل الصوت تلقائياً
 
-# استخدام WebDriver Manager لضمان التوافق التلقائي مع إصدار كروم بالسيرفر
 service = Service(ChromeDriverManager().install())
 driver = webdriver.Chrome(service=service, options=opts)
 
-# جلب أول رابط والبدء
 all_urls, switch_interval = get_remote_data()
 current_url = all_urls[0] if all_urls else "https://meja.do.am/asd/obs1.html"
 driver.get(current_url)
@@ -63,29 +61,27 @@ if not RTMP_KEY:
     disp.stop()
     exit(1)
 
-# 3️⃣ محرك FFmpeg (تم إصلاح مشكلة الصوت وتقليل الحمل على المعالج)
+# 3️⃣ محرك FFmpeg (الآن يلتقط الصوت الفعلي من كارت الصوت الوهمي)
 ffmpeg_cmd = [
     'ffmpeg', '-y',
     '-thread_queue_size', '4096',
-    '-f', 'x11grab', '-framerate', '60', '-video_size', '720x1400', '-i', os.environ['DISPLAY'],
-    '-f', 'pulse', '-i', 'default',
-    # 🟢 الفلتر القاطع: يقص أول 120 بكسل ويأخذ 1280 بكسل طول صافي
-    '-vf', 'crop=720:1280:0:120', 
-    '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', 
-    '-b:v', '5000k', '-maxrate', '5000k', '-bufsize', '10000k',
-    '-pix_fmt', 'yuv420p', '-g', '120', 
+    '-f', 'x11grab', '-framerate', '30', '-video_size', '720x1120', '-i', display_port,
+    '-f', 'pulse', '-i', 'auto_null.monitor', # 👈 التقاط الصوت الوهمي الذي يرسله كروم
+    '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency', 
+    '-b:v', '2500k', '-maxrate', '2500k', '-bufsize', '5000k',
+    '-pix_fmt', 'yuv420p', '-g', '60', 
     '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
     '-f', 'flv', f"rtmp://a.rtmp.youtube.com/live2/{RTMP_KEY}"
 ]
 
 process = subprocess.Popen(ffmpeg_cmd)
-print(f"📡 البث بدأ بمقاس 720x1120 في وضع ملء الشاشة.")
+print(f"📡 البث بدأ بمقاس 720x1120 مع تفعيل الصوت.")
 
 # 🔄 حلقة التبديل الذكي
 try:
     start_time = time.time()
     url_index = 0
-    while (time.time() - start_time) < 20700: # يعمل لمدة 5 ساعات و 45 دقيقة (لتجنب إيقاف سيرفرات جيت هاب القسري)
+    while (time.time() - start_time) < 20700:
         all_urls, switch_interval = get_remote_data()
         if all_urls:
             target_url = all_urls[url_index % len(all_urls)]
