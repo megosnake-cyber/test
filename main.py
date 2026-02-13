@@ -5,12 +5,33 @@ from pyvirtualdisplay import Display
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
-# 1. تشغيل الشاشة الوهمية بمقاس عمودي
+# --- وظائف مساعدة ---
+def validate_url(url):
+    """تتأكد من أن الرابط يبدأ ببروتوكول صحيح ولا يسبب خطأ"""
+    if not url or len(url.strip()) < 5:
+        return None
+    url = url.strip()
+    if not (url.startswith("http://") or url.startswith("https://")):
+        url = "https://" + url
+    return url
+
+def get_url_from_file():
+    """تقرأ الرابط وتتأكد من صلاحيته"""
+    try:
+        if os.path.exists("url.txt"):
+            with open("url.txt", "r") as f:
+                raw_url = f.read().strip()
+                return validate_url(raw_url)
+    except Exception as e:
+        print(f"⚠️ خطأ أثناء قراءة الملف: {e}")
+    return None
+
+# 1. تشغيل الشاشة الوهمية
 disp = Display(visible=0, size=(720, 1280), backend='xvfb')
 disp.start()
 os.environ['DISPLAY'] = ":" + str(disp.display)
 
-# 2. إعدادات الكروم (وضع الكشك لإخفاء الروابط والقوائم)
+# 2. إعدادات الكروم (وضع الكشك + ملئ الشاشة)
 opts = Options()
 opts.add_argument('--no-sandbox')
 opts.add_argument('--disable-dev-shm-usage')
@@ -18,27 +39,22 @@ opts.add_argument('--disable-gpu')
 opts.add_argument('--window-size=720,1280') 
 opts.add_argument('--hide-scrollbars')
 opts.add_argument('--autoplay-policy=no-user-gesture-required')
-# الإضافة الأهم لملئ الشاشة بالكامل:
-opts.add_argument('--kiosk') 
+opts.add_argument('--kiosk') # لإخفاء شريط العنوان تماماً
 
 driver = webdriver.Chrome(options=opts)
 
-# وظيفة لقراءة الرابط من ملف url.txt
-def get_url_from_file():
-    try:
-        if os.path.exists("url.txt"):
-            with open("url.txt", "r") as f:
-                return f.read().strip()
-    except Exception as e:
-        print(f"خطأ في قراءة الملف: {e}")
-    return None
+# تحديد الرابط الأول (إما من الملف أو رابط افتراضي)
+default_url = "https://meja.do.am/asd/obs1.html"
+current_url = get_url_from_file() or default_url
 
-# البداية برابط افتراضي أو من الملف
-current_url = get_url_from_file() or "https://meja.do.am/asd/obs1.html"
-driver.get(current_url)
+print(f"🌐 الرابط الذي سيتم فتحه: {current_url}")
+try:
+    driver.get(current_url)
+except Exception as e:
+    print(f"❌ فشل فتح الرابط الأولي، يتم العودة للافتراضي: {e}")
+    driver.get(default_url)
 
-print(f"🌐 الموقع الحالي: {current_url}")
-print("⌛ ننتظر 30 ثانية لضمان استقرار الصوت قبل بدء البث...")
+print("⌛ ننتظر 30 ثانية لضمان استقرار الصوت...")
 time.sleep(30)
 
 RTMP_KEY = os.environ.get('RTMP_KEY')
@@ -56,28 +72,29 @@ ffmpeg_cmd = [
     '-f', 'flv', f"rtmp://a.rtmp.youtube.com/live2/{RTMP_KEY}"
 ]
 
-print(f"📡 بدأت عملية البث على {os.environ['DISPLAY']}")
+print(f"📡 بدأ البث على شاشة {os.environ['DISPLAY']}")
 process = subprocess.Popen(ffmpeg_cmd)
 
 try:
-    print("🔄 نظام المراقبة يعمل: قم بتغيير الرابط داخل url.txt لتحديث البث فوراً...")
-    
-    # حلقة المراقبة (ستعمل لمدة 5 ساعات و 45 دقيقة تقريباً)
+    # حلقة المراقبة (5 ساعات و 45 دقيقة)
     end_time = time.time() + 20700
     while time.time() < end_time:
         new_url = get_url_from_file()
         
-        # إذا تغير الرابط في الملف عن الرابط الحالي
+        # إذا كان الرابط في الملف صالحاً ومختلفاً عن الحالي
         if new_url and new_url != current_url:
-            print(f"🚀 تم اكتشاف رابط جديد: {new_url}")
-            driver.get(new_url)
-            current_url = new_url
+            print(f"🚀 تحديث الرابط إلى: {new_url}")
+            try:
+                driver.get(new_url)
+                current_url = new_url
+            except Exception as e:
+                print(f"❌ لم يتمكن المتصفح من فتح الرابط الجديد: {e}")
         
-        time.sleep(5) # التحقق كل 5 ثوانٍ لتوفير الجهد
+        time.sleep(5)
 
 except KeyboardInterrupt:
-    print("🛑 تم إيقاف السكربت يدوياً")
+    print("🛑 إيقاف يدوي")
 finally:
-    process.terminate() # إغلاق FFmpeg
+    if 'process' in locals(): process.terminate()
     driver.quit()
     disp.stop()
