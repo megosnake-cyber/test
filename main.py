@@ -5,33 +5,31 @@ from pyvirtualdisplay import Display
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
-# --- وظائف مساعدة ---
-def validate_url(url):
-    """تتأكد من أن الرابط يبدأ ببروتوكول صحيح ولا يسبب خطأ"""
-    if not url or len(url.strip()) < 5:
-        return None
-    url = url.strip()
-    if not (url.startswith("http://") or url.startswith("https://")):
-        url = "https://" + url
-    return url
+# --- إعدادات أساسية ---
+DEFAULT_URL = "https://meja.do.am/asd/obs1.html"
+URL_FILE = "url.txt"
 
-def get_url_from_file():
-    """تقرأ الرابط وتتأكد من صلاحيته"""
+def get_valid_url():
+    """تقرأ الرابط وتتأكد أنه صالح 100% للسيلينيوم"""
     try:
-        if os.path.exists("url.txt"):
-            with open("url.txt", "r") as f:
-                raw_url = f.read().strip()
-                return validate_url(raw_url)
+        if os.path.exists(URL_FILE):
+            with open(URL_FILE, "r") as f:
+                link = f.read().strip()
+                if link.startswith("http"):
+                    return link
+                elif len(link) > 3: # إذا كان رابط بدون http مثل google.com
+                    return "https://" + link
     except Exception as e:
-        print(f"⚠️ خطأ أثناء قراءة الملف: {e}")
-    return None
+        print(f"⚠️ فشل قراءة الملف: {e}")
+    
+    return DEFAULT_URL # العودة للرابط الافتراضي في حال الفشل
 
 # 1. تشغيل الشاشة الوهمية
 disp = Display(visible=0, size=(720, 1280), backend='xvfb')
 disp.start()
 os.environ['DISPLAY'] = ":" + str(disp.display)
 
-# 2. إعدادات الكروم (وضع الكشك + ملئ الشاشة)
+# 2. إعدادات الكروم (ملئ الشاشة تماماً)
 opts = Options()
 opts.add_argument('--no-sandbox')
 opts.add_argument('--disable-dev-shm-usage')
@@ -39,22 +37,16 @@ opts.add_argument('--disable-gpu')
 opts.add_argument('--window-size=720,1280') 
 opts.add_argument('--hide-scrollbars')
 opts.add_argument('--autoplay-policy=no-user-gesture-required')
-opts.add_argument('--kiosk') # لإخفاء شريط العنوان تماماً
+opts.add_argument('--kiosk') # هذا هو وضع ملئ الشاشة الحقيقي
 
 driver = webdriver.Chrome(options=opts)
 
-# تحديد الرابط الأول (إما من الملف أو رابط افتراضي)
-default_url = "https://meja.do.am/asd/obs1.html"
-current_url = get_url_from_file() or default_url
+# البدء بأول رابط متاح
+current_url = get_valid_url()
+print(f"🚀 محاولة فتح الرابط: {current_url}")
+driver.get(current_url)
 
-print(f"🌐 الرابط الذي سيتم فتحه: {current_url}")
-try:
-    driver.get(current_url)
-except Exception as e:
-    print(f"❌ فشل فتح الرابط الأولي، يتم العودة للافتراضي: {e}")
-    driver.get(default_url)
-
-print("⌛ ننتظر 30 ثانية لضمان استقرار الصوت...")
+print("⌛ ننتظر 30 ثانية لاستقرار الصوت...")
 time.sleep(30)
 
 RTMP_KEY = os.environ.get('RTMP_KEY')
@@ -72,28 +64,26 @@ ffmpeg_cmd = [
     '-f', 'flv', f"rtmp://a.rtmp.youtube.com/live2/{RTMP_KEY}"
 ]
 
-print(f"📡 بدأ البث على شاشة {os.environ['DISPLAY']}")
+print(f"📡 بدأ البث المباشر...")
 process = subprocess.Popen(ffmpeg_cmd)
 
 try:
-    # حلقة المراقبة (5 ساعات و 45 دقيقة)
-    end_time = time.time() + 20700
-    while time.time() < end_time:
-        new_url = get_url_from_file()
+    # حلقة المراقبة والتحديث الفوري
+    while True:
+        target_url = get_valid_url()
         
-        # إذا كان الرابط في الملف صالحاً ومختلفاً عن الحالي
-        if new_url and new_url != current_url:
-            print(f"🚀 تحديث الرابط إلى: {new_url}")
+        if target_url != current_url:
+            print(f"🔄 تغيير الرابط إلى: {target_url}")
             try:
-                driver.get(new_url)
-                current_url = new_url
+                driver.get(target_url)
+                current_url = target_url
             except Exception as e:
-                print(f"❌ لم يتمكن المتصفح من فتح الرابط الجديد: {e}")
+                print(f"❌ خطأ أثناء الانتقال للرابط الجديد: {e}")
         
-        time.sleep(5)
+        time.sleep(10) # فحص الملف كل 10 ثوانٍ
 
 except KeyboardInterrupt:
-    print("🛑 إيقاف يدوي")
+    print("🛑 تم الإيقاف")
 finally:
     if 'process' in locals(): process.terminate()
     driver.quit()
