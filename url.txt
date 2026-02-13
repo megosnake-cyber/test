@@ -1,3 +1,1 @@
-interval=10
-https://meja.do.am/asd/obs1.html
 https://meja.do.am/asd/obs1.html
