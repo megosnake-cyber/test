@@ -1,35 +1,35 @@
 import os
 import subprocess
 import time
+import requests
 from pyvirtualdisplay import Display
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
-# --- إعدادات أساسية ---
+# --- 🛠️ إعدادات التحكم الخاصة بموقعك ---
+# ضع هنا رابط الملف الموجود على سيرفرك الخاص
+MY_WEBSITE_CONTROL = "https://meja.do.am/asd/url.txt" 
 DEFAULT_URL = "https://meja.do.am/asd/obs1.html"
-URL_FILE = "url.txt"
 
-def get_valid_url():
-    """تقرأ الرابط وتتأكد أنه صالح 100% للسيلينيوم"""
+def get_url_from_my_site():
+    """جلب الرابط من سيرفرك الخاص وتجاوز الكاش"""
     try:
-        if os.path.exists(URL_FILE):
-            with open(URL_FILE, "r") as f:
-                link = f.read().strip()
-                if link.startswith("http"):
-                    return link
-                elif len(link) > 3: # إذا كان رابط بدون http مثل google.com
-                    return "https://" + link
+        # إضافة t= لتجنب تخزين السيرفر للنسخة القديمة (Cache)
+        response = requests.get(f"{MY_WEBSITE_CONTROL}?t={int(time.time())}", timeout=5)
+        if response.status_code == 200:
+            new_link = response.text.strip()
+            if new_link.startswith("http"):
+                return new_link
     except Exception as e:
-        print(f"⚠️ فشل قراءة الملف: {e}")
-    
-    return DEFAULT_URL # العودة للرابط الافتراضي في حال الفشل
+        print(f"⚠️ تعذر الاتصال بموقعك: {e}")
+    return None
 
-# 1. تشغيل الشاشة الوهمية
+# 1. تشغيل الشاشة الوهمية بمقاس الطول (Portrait)
 disp = Display(visible=0, size=(720, 1280), backend='xvfb')
 disp.start()
 os.environ['DISPLAY'] = ":" + str(disp.display)
 
-# 2. إعدادات الكروم (ملئ الشاشة تماماً)
+# 2. إعدادات الكروم (وضع الكشك + ملئ الشاشة الكاملة)
 opts = Options()
 opts.add_argument('--no-sandbox')
 opts.add_argument('--disable-dev-shm-usage')
@@ -37,21 +37,22 @@ opts.add_argument('--disable-gpu')
 opts.add_argument('--window-size=720,1280') 
 opts.add_argument('--hide-scrollbars')
 opts.add_argument('--autoplay-policy=no-user-gesture-required')
-opts.add_argument('--kiosk') # هذا هو وضع ملئ الشاشة الحقيقي
+# الكود السحري لإخفاء كل شيء (الروابط، القوائم، الأزرار)
+opts.add_argument('--kiosk') 
 
 driver = webdriver.Chrome(options=opts)
 
-# البدء بأول رابط متاح
-current_url = get_valid_url()
-print(f"🚀 محاولة فتح الرابط: {current_url}")
+# البدء بالرابط الموجود حالياً على موقعك
+current_url = get_url_from_my_site() or DEFAULT_URL
+print(f"🌐 جاري فتح الرابط الأول: {current_url}")
 driver.get(current_url)
 
-print("⌛ ننتظر 30 ثانية لاستقرار الصوت...")
+print("⌛ استقرار الصوت لمدة 30 ثانية...")
 time.sleep(30)
 
 RTMP_KEY = os.environ.get('RTMP_KEY')
 
-# 3. محرك البث FFmpeg
+# 3. محرك البث FFmpeg (جودة عالية 60 فريم)
 ffmpeg_cmd = [
     'ffmpeg', '-y',
     '-thread_queue_size', '4096',
@@ -64,26 +65,27 @@ ffmpeg_cmd = [
     '-f', 'flv', f"rtmp://a.rtmp.youtube.com/live2/{RTMP_KEY}"
 ]
 
-print(f"📡 بدأ البث المباشر...")
 process = subprocess.Popen(ffmpeg_cmd)
 
 try:
-    # حلقة المراقبة والتحديث الفوري
+    print("🚀 البث يعمل الآن.. سأراقب موقعك كل 10 ثوانٍ لأي تغيير...")
     while True:
-        target_url = get_valid_url()
+        # فحص موقعك بحثاً عن رابط جديد
+        target_url = get_url_from_my_site()
         
-        if target_url != current_url:
-            print(f"🔄 تغيير الرابط إلى: {target_url}")
+        if target_url and target_url != current_url:
+            print(f"🔔 تم تغيير الرابط في موقعك إلى: {target_url}")
             try:
                 driver.get(target_url)
                 current_url = target_url
+                print("✅ تم تحديث الشاشة في البث بنجاح")
             except Exception as e:
-                print(f"❌ خطأ أثناء الانتقال للرابط الجديد: {e}")
+                print(f"❌ فشل تحديث المتصفح: {e}")
         
-        time.sleep(10) # فحص الملف كل 10 ثوانٍ
+        time.sleep(10) # سرعة الفحص (يمكنك تقليلها لـ 5 ثوانٍ لسرعة أكبر)
 
 except KeyboardInterrupt:
-    print("🛑 تم الإيقاف")
+    print("🛑 إيقاف البث...")
 finally:
     if 'process' in locals(): process.terminate()
     driver.quit()
