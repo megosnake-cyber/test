@@ -30,8 +30,8 @@ def get_remote_data():
     except: pass
     return [], 60
 
-# 1️⃣ تشغيل الشاشة الوهمية بمقاس البث (720x1120)
-disp = Display(visible=0, size=(720, 1120), backend='xvfb')
+# 1️⃣ تشغيل الشاشة الوهمية بمقاس البث (720x1100)
+disp = Display(visible=0, size=(720, 1100), backend='xvfb')
 disp.start()
 
 display_port = os.environ.get('DISPLAY', ':0')
@@ -41,7 +41,7 @@ opts = Options()
 opts.add_argument('--no-sandbox')
 opts.add_argument('--disable-dev-shm-usage')
 opts.add_argument('--disable-gpu')
-opts.add_argument('--window-size=720,1120')
+opts.add_argument('--window-size=720,1100')
 opts.add_argument('--kiosk')
 opts.add_argument('--hide-scrollbars')
 opts.add_argument('--autoplay-policy=no-user-gesture-required') # 👈 إجبار المتصفح على تشغيل الصوت تلقائياً
@@ -66,7 +66,7 @@ ffmpeg_cmd = [
     'ffmpeg', '-y',
     '-use_wallclock_as_timestamps', '1', # 👈 توحيد التوقيت للصورة
     '-thread_queue_size', '4096',
-    '-f', 'x11grab', '-framerate', '30', '-video_size', '720x1120', '-i', display_port,
+    '-f', 'x11grab', '-framerate', '30', '-video_size', '720x1100', '-i', display_port,
     '-use_wallclock_as_timestamps', '1', # 👈 توحيد التوقيت للصوت
     '-thread_queue_size', '4096',        # 👈 ذاكرة تخزين مؤقتة للصوت لمنع التقطيع
     '-f', 'pulse', '-i', 'auto_null.monitor',
@@ -79,7 +79,7 @@ ffmpeg_cmd = [
 ]
 
 process = subprocess.Popen(ffmpeg_cmd)
-print(f"📡 البث بدأ بمقاس 720x1120 مع تفعيل الصوت.")
+print(f"📡 البث بدأ بمقاس 720x1100 مع تفعيل الصوت.")
 
 # 🔄 حلقة التبديل الذكي
 try:
