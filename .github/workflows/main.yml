@@ -48,7 +48,7 @@ jobs:
           from multiprocessing import Process
 
           # إعدادات البث الأول
-          URL1_CONTROL = "https://meja.do.am/asd/GoZiLG.html"
+          URL1_CONTROL = "https://meja.do.am/work/url1.txt"
           APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbwHOBJGdPyCgleeeKmS0dJkumOXI0vNAbeqARfpSXunx504hIDrcurswc6CTbLcyMUF/exec"
 
           def kill_all(signum, frame):
