@@ -91,9 +91,13 @@ jobs:
 
           def start_stream(rtmp_key, sink_name, control_url, apps_script_url, initial_delay=0):
               try:
-                  requests.get(apps_script_url, timeout=5)
-              except:
-                  pass
+                  print("Triggering Google Apps Script to create a new stream...")
+                  # زيادة الـ timeout إلى 60 ثانية والسماح بإعادة التوجيه لضمان عمل السكربت
+                  requests.get(apps_script_url, timeout=60, allow_redirects=True)
+                  print("Apps Script triggered. Waiting for stream to be ready...")
+                  time.sleep(10) # انتظار 10 ثواني للتأكد من أن يوتيوب قام بإنشاء البث وجاهز للاستقبال
+              except Exception as e:
+                  print(f"Error triggering Apps Script: {e}")
 
               if initial_delay > 0:
                   time.sleep(initial_delay)
