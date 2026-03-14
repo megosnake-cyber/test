@@ -49,7 +49,7 @@ jobs:
 
           # إعدادات البث الأول
           URL1_CONTROL = "https://meja.do.am/work/url1.txt"
-          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbx1UVypohebhb-WCP2N_qtpH0MRu8lN6l9cAM43ZxDVEYvgUxhxoUiKXiEhnxjbvFPO/exec"
+          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbxJEmRz0Un5loqLUIzwlffdvIpyKlgVw420AWJU365I0er1Ylx__YwCWx2BXCsGzVeTGQ/exec"
 
           def kill_all(signum, frame):
               os._exit(0)
