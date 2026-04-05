@@ -1,16 +1,23 @@
-name: Perpetual Dual Stream
+name: Perpetual Dual Jobs
 
 on:
   workflow_dispatch:
   repository_dispatch:
-    types: [restart-session]
+    types: [restart-stream, restart-video]
 
 concurrency:
-  group: streaming-group
-  cancel-in-progress: true
+  group: streaming-and-video
+  cancel-in-progress: false
 
 jobs:
+  # ==========================================
+  # السكربت الأول: البث المباشر (Stream)
+  # ==========================================
   stream:
+    if: github.event_name == 'workflow_dispatch' || github.event.action == 'restart-stream'
+    concurrency:
+      group: streaming-group
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -178,7 +185,7 @@ jobs:
           R1: ${{ secrets.R1 }}
         run: python main.py
 
-      - name: Wait & Restart
+      - name: Wait & Restart Stream
         if: always()
         run: |
           python - <<'PYTHON'
@@ -199,4 +206,415 @@ jobs:
             -H "Authorization: token ${{ github.token }}" \
             -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/${{ github.repository }}/dispatches \
-            -d '{"event_type": "restart-session"}'
+            -d '{"event_type": "restart-stream"}'
+
+  # ==========================================
+  # السكربت الثاني: صناعة ورفع الفيديو (Video)
+  # ==========================================
+  video:
+    if: github.event_name == 'workflow_dispatch' || github.event.action == 'restart-video'
+    concurrency:
+      group: video-group
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 🧹 Delete Old Logs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 0
+          keep_minimum_runs: 1
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: 🚀 Create and Run Script
+        env:
+          YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
+        run: |
+          pip install requests bs4 "moviepy==1.0.3" "pillow==10.2.0" g4f edge-tts tqdm nest_asyncio google-api-python-client google-auth-httplib2 google-auth-oauthlib numpy -q
+          
+          cat << 'EOF' > script.py
+          # ==========================================
+          # استدعاء جميع المكتبات
+          # ==========================================
+          import os, asyncio, re, warnings, urllib3, requests, time, gc, json, random
+          import nest_asyncio
+          import g4f
+          import edge_tts
+          from bs4 import BeautifulSoup
+          from tqdm import tqdm
+          import numpy as np
+
+          # --- حل مشكلة PIL.Image.ANTIALIAS مع MoviePy ---
+          import PIL.Image
+          import PIL.ImageDraw
+          if not hasattr(PIL.Image, 'ANTIALIAS'):
+              PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
+          # -----------------------------------------------
+
+          from moviepy.editor import ImageClip, AudioFileClip, VideoFileClip, ImageSequenceClip
+          import moviepy.video.fx.all as vfx
+          from datetime import datetime
+          from google.oauth2.credentials import Credentials
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
+
+          # ==========================================
+          # إعدادات بيئة العمل
+          # ==========================================
+          nest_asyncio.apply()
+          urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+          warnings.filterwarnings("ignore", category=UserWarning)
+          os.environ["IMAGEIO_FFMPEG_EXE"] = "ffmpeg"
+          os.environ["SDL_VIDEODRIVER"] = "dummy"
+
+          HISTORY_FILE = "shows_history.txt"
+
+          # ==========================================
+          # توليد وتسجيل فيديو لعبة الثعبان تلقائياً
+          # ==========================================
+          def generate_snake_game_recording():
+              print("🎮 جاري تسجيل فيديو لعبة الثعبان برمجياً...")
+              w, h = 720, 1280
+              cs = 40
+              snake = [(10, 15), (10, 16), (10, 17), (10, 18), (10, 19)]
+              direction = (0, -1)
+              food = (15, 10)
+              frames = []
+              
+              # تسجيل 15 ثانية (150 إطار بـ 10 إطارات/ثانية)
+              for i in range(150): 
+                  img = PIL.Image.new('RGB', (w, h), color='#1e1e1e')
+                  draw = PIL.ImageDraw.Draw(img)
+                  
+                  # ذكاء اصطناعي بسيط لتحريك الثعبان نحو الطعام
+                  head = snake[0]
+                  if head[0] < food[0] and direction != (-1, 0): direction = (1, 0)
+                  elif head[0] > food[0] and direction != (1, 0): direction = (-1, 0)
+                  elif head[1] < food[1] and direction != (0, -1): direction = (0, 1)
+                  elif head[1] > food[1] and direction != (0, 1): direction = (0, -1)
+                  
+                  new_head = ((head[0] + direction[0]) % (w//cs), (head[1] + direction[1]) % (h//cs))
+                  snake.insert(0, new_head)
+                  
+                  if new_head == food:
+                      food = ((food[0] + 7) % (w//cs), (food[1] + 11) % (h//cs))
+                  else:
+                      snake.pop()
+                      
+                  # رسم الطعام (التفاحة)
+                  fx, fy = food[0]*cs, food[1]*cs
+                  draw.rectangle([fx, fy, fx+cs, fy+cs], fill='#FF3333', outline='#AA0000', width=2)
+                  
+                  # رسم الثعبان
+                  for idx, (sx, sy) in enumerate(snake):
+                      px, py = sx*cs, sy*cs
+                      color = '#00FF00' if idx == 0 else '#00CC00'
+                      draw.rectangle([px, py, px+cs, py+cs], fill=color, outline='#005500', width=2)
+                      
+                  frames.append(np.array(img))
+                  
+              clip = ImageSequenceClip(frames, fps=10)
+              # حفظ الفيديو ليتم تكراره على طول الصوت
+              clip.write_videofile("snake_loop_recorded.mp4", fps=10, codec="libx264", verbose=False, logger=None)
+              print("✅ تم الانتهاء من تسجيل اللعبة بنجاح.")
+
+          # ==========================================
+          # دوال جلب وإنشاء المحتوى
+          # ==========================================
+          def get_data():
+              history_titles = []
+              if os.path.exists(HISTORY_FILE):
+                  with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                      for line in f:
+                          if "|" in line:
+                              history_titles.append(line.split("|")[0].strip())
+
+              base = "https://www.shorttv.live"
+              try:
+                  r = requests.get(f"{base}/ar", headers={"User-Agent": "Mozilla/5.0"}, verify=False, timeout=10)
+                  soup = BeautifulSoup(r.text, 'html.parser')
+                  
+                  links = soup.find_all('a', href=True)
+                  random.shuffle(links)
+
+                  for a in links:
+                      img = a.find('img')
+                      if not img: continue
+                      title = re.sub(r'[a-zA-Z]', '', img.get('alt', '')).strip()
+                      if len(title) < 5: continue
+                      
+                      # التحقق من أن الفيديو لم يتم عمله من قبل
+                      if title in history_titles:
+                          continue 
+                      
+                      s_url = a['href'] if a['href'].startswith('http') else base + a['href']
+                      s_page = requests.get(s_url, verify=False, timeout=5)
+                      s_soup = BeautifulSoup(s_page.text, 'html.parser')
+                      meta = s_soup.find('meta', attrs={'name': 'description'})
+                      desc = meta.get('content', '') if meta else "قصة درامية مشوقة"
+                      
+                      i_url = img.get('src') or img.get('data-src')
+                      if i_url.startswith('//'): i_url = "https:" + i_url
+                      
+                      # تحميل صورة المسلسل لحفظها واستخدامها كـ صورة مصغرة لاحقاً
+                      img_data = requests.get(i_url).content
+                      with open("thumbnail.jpg", "wb") as f: f.write(img_data)
+                      
+                      return {"title": title, "desc": desc}
+              except Exception as e:
+                  return None
+              
+              return None
+
+          async def make_audio(text):
+              clean_text = re.sub(r'[^\u0600-\u06FF\s،.]', '', text)
+              communicate = edge_tts.Communicate(clean_text, "ar-KW-NouraNeural", rate="+12%")
+              await communicate.save("v.mp3")
+
+          def create_story(t, d):
+              full_story = ""
+              current_context = d
+              print(f"🔄 البدء في توليد الملحمة (Target: 2500 - 3000 words)...")
+              
+              iteration = 1
+              max_iterations = 50 
+              
+              while len(full_story.split()) < 2500 and iteration <= max_iterations:
+                  success = False
+                  for attempt in range(5):
+                      try:
+                          if iteration == 1:
+                              prompt = (f"ابدأ القصة بـ Hook تشويقي باللهجة العامية المصرية بأسلوب: 'في مسلسلنا اليوم.. {t}.. [موقف صادم أو تضحية].. وفي الآخر بيحصل [خيانة أو صدمة]!' "
+                                        f"خليه أسلوب حكواتي بيشد اللي قدامه. "
+                                        f"بعد الـ Hook، ادخل فوراً في السرد الملحمي والمفصل جداً باللغة العربية الفصحى. "
+                                        f"بناءً على الوصف: {current_context}. "
+                                        f"يجب أن تكون الفقرة طويلة جداً لا تقل عن 400 كلمة، ركز على أدق التفاصيل في المشهد، "
+                                        f"الألوان، الروائح، والمشاعر. اجعل النص مسترسلاً بدون أرقام أو رموز.")
+                          else:
+                              prompt = (f"أكمل القصة السابقة بحدث درامي جديد ومفصل جداً. "
+                                        f"آخر ما حدث هو: {full_story[-800:]}. "
+                                        f"اكتب فقرة طويلة جداً لا تقل عن 400 كلمة. "
+                                        f"زد من تعقيد الأحداث وتعمق في الحوارات الداخلية للشخصيات. "
+                                        f"تذكر: فقرة واحدة مسترسلة، لغة عربية فصحى فقط بدون أرقام أو رموز.")
+
+                          response = g4f.ChatCompletion.create(
+                              model=g4f.models.gpt_4,
+                              messages=[{"role":"user", "content": prompt}]
+                          )
+                          
+                          if response and len(response) > 200:
+                              chunk = re.sub(r'[*#\-]', '', response).strip()
+                              full_story += " " + chunk
+                              success = True
+                              current_words = len(full_story.split())
+                              print(f"✅ تم توليد الجزء {iteration} بنجاح. (إجمالي الكلمات حتى الآن: {current_words})")
+                              break
+                          else:
+                              print(f"⚠️ استجابة قصيرة في الجزء {iteration} (محاولة {attempt+1})...")
+                              time.sleep(2)
+                      except Exception as e:
+                          print(f"⚠️ محاولة فاشلة في الجزء {iteration} (محاولة {attempt+1})...")
+                          time.sleep(5)
+                  
+                  if not success:
+                      print(f"❌ تعذر استكمال الأجزاء التالية، سيتم الاكتفاء بما تم جمعه.")
+                      break
+                      
+                  iteration += 1
+                  time.sleep(2) 
+                  
+                  words = full_story.split()
+                  if len(words) >= 3000:
+                      full_story = " ".join(words[:3000])
+                      print(f"✂️ تم الوصول للحد الأقصى وتم ضبط القصة لتكون بحدود 3000 كلمة.")
+                      break
+              
+              return full_story.strip() if full_story else f""
+
+          async def start_video_creation():
+              with tqdm(total=4, desc="🚀 العمل جاري", unit="step", bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]') as pbar:
+                  pbar.set_description("🔍 جلب البيانات")
+                  data = get_data()
+                  if not data: 
+                      pbar.write("❌ فشل في جلب البيانات، إما بسبب التكرار أو خطأ في الاتصال.")
+                      return None
+                  
+                  t = data['title']
+                  pbar.write(f"🎬 العنوان المستهدف: {t}")
+                  pbar.update(1)
+
+                  pbar.set_description("🤖 تأليف الملحمة الطويلة")
+                  ai_story = create_story(t, data['desc'])
+                  fixed_intro = f""
+                  final_story_text = fixed_intro + ai_story
+                  word_count = len(final_story_text.split())
+                  pbar.write(f"📖 الطول النهائي للقصة: {word_count} كلمة.")
+                  pbar.update(1)
+
+                  pbar.set_description("🎙️ توليد الصوت")
+                  await make_audio(final_story_text)
+                  pbar.update(1)
+
+                  pbar.set_description("🎬 تسجيل ومونتاج فيديو الثعبان التلقائي")
+                  final_video_name = "out.mp4"
+                  try:
+                      aud = AudioFileClip("v.mp3")
+                      
+                      # إنشاء فيديو لعبة الثعبان
+                      generate_snake_game_recording()
+                      
+                      # سحب الفيديو المُسجل وتكراره ليطابق تماماً طول الصوت
+                      base_vid = VideoFileClip("snake_loop_recorded.mp4")
+                      base_vid = base_vid.fx(vfx.loop, duration=aud.duration)
+
+                      vid = base_vid.set_audio(aud)
+                      
+                      vid.write_videofile(final_video_name, fps=15, codec="libx264", audio_codec="aac", temp_audiofile='temp-audio.m4a', remove_temp=True, verbose=False, logger=None)
+                      
+                      aud.close()
+                      base_vid.close()
+                  except Exception as e:
+                      pbar.write(f"Video Error: {e}")
+                      return None
+                  pbar.update(1)
+                  
+                  # إرجاع العنوان والقصة المولدة لاستخدامها في عنوان اليوتيوب
+                  return {"title": t, "story": ai_story}
+
+          # ==========================================
+          # عملية إنتاج فيديو واحد فقط
+          # ==========================================
+          print("\n" + "="*60)
+          print("🔄 بدء الجلسة: سيتم إنتاج ورفع فيديو واحد فقط...")
+          print("="*60)
+
+          loop = asyncio.get_event_loop()
+
+          try:
+              result_data = loop.run_until_complete(start_video_creation())
+
+              if result_data and os.path.exists("out.mp4"):
+                  video_title = result_data["title"]
+                  ai_story = result_data["story"]
+                  
+                  # === فترة انتظار عشوائية للتمويه من 1 إلى 5 دقائق قبل الرفع ===
+                  wait_time = random.randint(60, 300)
+                  print(f"\n⏳ تم إنتاج الفيديو. انتظار عشوائي لمدة {wait_time // 60} دقيقة و {wait_time % 60} ثانية للتمويه قبل الرفع إلى اليوتيوب...")
+                  time.sleep(wait_time)
+                  # ============================================
+
+                  print("\n📤 جاري الرفع إلى يوتيوب (يرجى الانتظار حتى تكتمل العملية)...")
+                  try:
+                      if 'YOUTUBE_CREDENTIALS' in os.environ:
+                          creds_data = json.loads(os.environ['YOUTUBE_CREDENTIALS'])
+                          creds = Credentials.from_authorized_user_info(creds_data)
+                          youtube = build('youtube', 'v3', credentials=creds)
+                          
+                          # ========================================================
+                          # توليد عنوان مشوق من القصة باستخدام الذكاء الاصطناعي
+                          # ========================================================
+                          try:
+                              prompt_t = f"استخرج حدثاً صادماً ومشوقاً من هذه القصة في جملة قصيرة جداً (لا تتعدى 8 كلمات) لتكون عنواناً جذاباً للفيديو. اكتب الجملة فقط بدون علامات تنصيص أو إضافات: {ai_story[:1000]}"
+                              catchy_event = g4f.ChatCompletion.create(model=g4f.models.gpt_4, messages=[{"role":"user", "content": prompt_t}])
+                              if catchy_event and len(catchy_event) > 5:
+                                  catchy_event = catchy_event.replace('"', '').replace("'", "").strip()
+                              else:
+                                  catchy_event = "أحداث صادمة ومفاجآت غير متوقعة"
+                          except:
+                              catchy_event = "أحداث صادمة ومفاجآت غير متوقعة"
+
+                          # دمج الحدث مع كلمة ملخص واسم المسلسل
+                          raw_yt_title = f"{catchy_event} | ملخص {video_title}"
+                          
+                          # التأكد من أن طول العنوان لا يتجاوز حد اليوتيوب المسموح به
+                          if len(raw_yt_title) > 95: 
+                              raw_yt_title = raw_yt_title[:95] + "..."
+
+                          # تجهيز الوصف بالصيغة المطلوبة + جزء من القصة
+                          full_description = f"مسلسل {video_title} مدبلج بالعربي ملخص كامل تلخيص جميع الاجزاء المترجمة \n\n{ai_story[:500]}..."
+
+                          body = {
+                              'snippet': {
+                                  'title': raw_yt_title, 
+                                  'description': full_description, 
+                                  'categoryId': '24'
+                              },
+                              'status': {'privacyStatus': 'public', 'selfDeclaredMadeForKids': False}
+                          }
+                          
+                          media = MediaFileUpload("out.mp4", chunksize=-1, resumable=True)
+                          response = youtube.videos().insert(part=','.join(body.keys()), body=body, media_body=media).execute()
+                          video_id = response['id']
+                          print(f"✅ تم الرفع ليوتيوب بنجاح: https://www.youtube.com/watch?v={video_id}")
+
+                          # ========================================================
+                          # تعيين صورة المسلسل كصورة مصغرة (Thumbnail)
+                          # ========================================================
+                          print("📸 جاري تعيين صورة المسلسل كصورة مصغرة...")
+                          try:
+                              youtube.thumbnails().set(
+                                  videoId=video_id,
+                                  media_body=MediaFileUpload("thumbnail.jpg")
+                              ).execute()
+                              print("✅ تم رفع الصورة المصغرة بنجاح.")
+                          except Exception as e:
+                              print(f"⚠️ فشل رفع الصورة المصغرة: {e}")
+
+                          # تسجيل الفيديو في الهيستوري لمنع تكراره طوال الحياة
+                          with open(HISTORY_FILE, "a", encoding="utf-8") as f:
+                              f.write(f"{video_title}|{datetime.now().strftime('%Y-%m-%d')}\n")
+                  except Exception as e:
+                      print(f"❌ فشل يوتيوب: {e}")
+              else:
+                  print("⚠️ لم يتم إنتاج فيديو في هذه الدورة. قد يكون بسبب تكرار المحتوى.")
+
+          except Exception as e:
+              print(f"❌ حدث خطأ غير متوقع في الدورة: {e}")
+
+          # تنظيف الملفات المؤقتة بعد رفع الفيديو
+          for f in os.listdir():
+              if f.endswith((".mp3", ".wav", ".jpg", ".webp", ".mp4", ".m4a")) and f != "fallback.webp":
+                  try: os.remove(f)
+                  except: pass
+          
+          # ========================================================
+          # انتظار 4 ساعات كاملة بعد الرفع مباشرة 
+          # ========================================================
+          print("\n⏱️ تم إنجاز عملية الرفع. سيتم الآن الانتظار لمدة 4 ساعات كاملة (14400 ثانية) قبل إغلاق الجلسة...")
+          time.sleep(4 * 60 * 60)
+
+          print("\n" + "="*50)
+          print("✅ انتهت فترة الانتظار (4 ساعات). سيتم الإغلاق للبدء بدورة (Job) جديدة لضمان الاستمرارية.")
+          print("="*50)
+          EOF
+          python script.py
+
+      - name: 💾 Commit History to Repository
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add shows_history.txt || true
+          git commit -m "📝 Update trends history" || true
+          git push || true
+
+      - name: ⏳ Workflow Persistence (Auto-restart Video)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "جاري إعادة تشغيل الأكشن لضمان العمل المستمر لوظيفة الفيديو (Perpetual Video)..."
+          curl -X POST \
+            -H "Authorization: token ${{ github.token }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/dispatches \
+            -d '{"event_type": "restart-video"}'
