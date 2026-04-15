@@ -45,9 +45,8 @@ jobs:
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
           from selenium.webdriver.common.by import By
-          from multiprocessing import Process
 
-          # إعدادات التحكم
+          # إعدادات الروابط والتحكم
           URL1_CONTROL = "https://meja.do.am/work/url1.txt"
           APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbzdsjYNRkAdtnbk0B15SPO8Zi_SSOovk9gd0z9OG1Fq1PExCwaZ3A6WT6P5jwaSHnCujA/exec"
 
@@ -80,102 +79,72 @@ jobs:
                   if control_url:
                       new_url = get_url_from_file(control_url)
                       if new_url and new_url != last_url:
-                          driver.delete_all_cookies()
-                          driver.execute_script("window.localStorage.clear();")
-                          driver.execute_script("window.sessionStorage.clear();")
-                          driver.execute_cdp_cmd('Network.clearBrowserCache', {})
-                          driver.execute_cdp_cmd('Network.clearBrowserCookies', {})
                           driver.get(new_url)
                           last_url = new_url
-                  time.sleep(3)
+                  time.sleep(5)
 
-          def start_stream(rtmp_key, kick_key, sink_name, control_url, apps_script_url, initial_delay=0):
+          def start_stream(rtmp_key, kick_key, sink_name, control_url, apps_script_url):
               try:
-                  print("Triggering Google Apps Script to create a new stream...")
-                  requests.get(apps_script_url, timeout=60, allow_redirects=True)
-                  print("Apps Script triggered. Waiting for stream to be ready...")
-                  time.sleep(10)
-              except Exception as e:
-                  print(f"Error triggering Apps Script: {e}")
+                  print("Triggering Apps Script...")
+                  requests.get(apps_script_url, timeout=30, allow_redirects=True)
+                  time.sleep(5)
+              except:
+                  pass
 
-              if initial_delay > 0:
-                  time.sleep(initial_delay)
-              
               width, height = 720, 1280
               os.environ['PULSE_SINK'] = sink_name
               disp = Display(visible=0, size=(width, height), backend='xvfb')
               disp.start()
+              
               subprocess.Popen(['unclutter', '-idle', '0'])
-              ffmpeg_proc = None
+              
+              target_url = get_url_from_file(control_url)
+              if not target_url:
+                  print("No target URL found.")
+                  return
+
+              opts = Options()
+              opts.add_argument('--no-sandbox')
+              opts.add_argument('--disable-dev-shm-usage')
+              opts.add_argument('--autoplay-policy=no-user-gesture-required')
+              opts.add_argument('--hide-scrollbars')
+              opts.add_argument(f'--app={target_url}')
+              
+              driver = webdriver.Chrome(options=opts)
+              time.sleep(10)
+
+              # بناء أمر FFmpeg للبث المزدوج
+              youtube_url = f"rtmp://a.rtmp.youtube.com/live2/{rtmp_key}"
+              kick_url = f"rtmps://fa723fc1b171.global-contribute.live-video.net/app/{kick_key}"
+
+              # نستخدم tee muxer مع تحديد f=flv لكل مخرج
+              outputs = f"[f=flv]{youtube_url}|[f=flv]{kick_url}"
+
+              ffmpeg_cmd = [
+                  'ffmpeg', '-y',
+                  '-f', 'x11grab', '-framerate', '60', '-s', f'{width}x{height}', '-i', f":{disp.display}",
+                  '-f', 'pulse', '-i', f"{sink_name}.monitor",
+                  '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', '-b:v', '4000k',
+                  '-pix_fmt', 'yuv420p', '-g', '120',
+                  '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
+                  '-f', 'tee', '-map', '0:v', '-map', '1:a', outputs
+              ]
+
+              ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
               try:
-                  target_url = get_url_from_file(control_url)
-                  if target_url:
-                      opts = Options()
-                      opts.add_argument('--no-sandbox')
-                      opts.add_argument('--disable-dev-shm-usage')
-                      opts.add_argument('--autoplay-policy=no-user-gesture-required')
-                      opts.add_argument('--disable-notifications')
-                      opts.add_argument('--disable-infobars')
-                      opts.add_argument('--disable-extensions')
-                      opts.add_argument('--disable-popup-blocking')
-                      opts.add_argument('--disable-features=TranslateUI')
-                      opts.add_argument('--disable-gpu')
-                      opts.add_experimental_option("excludeSwitches", ["enable-automation"])
-                      opts.add_experimental_option('useAutomationExtension', False)
-                      opts.add_argument('--disable-blink-features=AutomationControlled')
-                      opts.add_argument('--hide-scrollbars')
-                      opts.add_argument(f'--app={target_url}')
-
-                      driver = webdriver.Chrome(options=opts)
-                      time.sleep(8)
-
-                      ffmpeg_cmd = [
-                          'ffmpeg', '-y',
-                          '-thread_queue_size', '1024',
-                          '-f', 'x11grab',
-                          '-framerate', '60',
-                          '-s', f'{width}x{height}',
-                          '-i', f":{disp.display}",
-                          '-f', 'pulse',
-                          '-i', f"{sink_name}.monitor",
-                          '-c:v', 'libx264',
-                          '-preset', 'ultrafast',
-                          '-tune', 'zerolatency',
-                          '-b:v', '4000k',
-                          '-maxrate', '4000k',
-                          '-bufsize', '8000k',
-                          '-r', '60',
-                          '-g', '120',
-                          '-keyint_min', '120',
-                          '-sc_threshold', '0',
-                          '-pix_fmt', 'yuv420p',
-                          '-c:a', 'aac',
-                          '-b:a', '128k'
-                      ]
-
-                      # نظام البث المزدوج (Dual Stream) باستخدام Tee Muxer
-                      if kick_key:
-                          outputs = f"[f=flv]rtmp://a.rtmp.youtube.com/live2/{rtmp_key}|[f=flv]rtmps://fa723fc1b171.global-contribute.live-video.net/app/{kick_key}"
-                          ffmpeg_cmd.extend(['-flags', '+global_header', '-f', 'tee', outputs])
-                      else:
-                          ffmpeg_cmd.extend(['-f', 'flv', f"rtmp://a.rtmp.youtube.com/live2/{rtmp_key}"])
-
-                      ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
-                      active_wait(driver, 3600, control_url)
+                  active_wait(driver, 3500, control_url)
               finally:
-                  if ffmpeg_proc:
-                      ffmpeg_proc.kill()
-                  try:
-                      driver.quit()
-                  except:
-                      pass
+                  ffmpeg_proc.kill()
+                  driver.quit()
                   disp.stop()
 
           if __name__ == "__main__":
               R1 = os.environ.get('R1')
-              KICK_KEY = os.environ.get('KICK_KEY')
-              if R1:
-                  start_stream(R1, KICK_KEY, "Sink1", URL1_CONTROL, APPS_SCRIPT_URL1, 0)
+              KICK = os.environ.get('KICK_KEY')
+              if R1 and KICK:
+                  start_stream(R1, KICK, "Sink1", URL1_CONTROL, APPS_SCRIPT_URL1)
+              else:
+                  print("Missing Stream Keys!")
           EOF
 
       - name: Run Streaming Script
@@ -187,20 +156,7 @@ jobs:
       - name: Wait & Restart
         if: always()
         run: |
-          python - <<'PYTHON'
-          import time, signal, sys
-          stop = False
-          def handler(signum, frame):
-              global stop
-              stop = True
-          signal.signal(signal.SIGTERM, handler)
-          signal.signal(signal.SIGINT, handler)
-          wait_seconds = 60
-          for _ in range(0, wait_seconds):
-              if stop: sys.exit(0)
-              time.sleep(1)
-          PYTHON
-
+          sleep 60
           curl -X POST \
             -H "Authorization: token ${{ github.token }}" \
             -H "Accept: application/vnd.github.v3+json" \
