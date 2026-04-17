@@ -120,6 +120,13 @@ jobs:
                       opts.add_argument('--disable-popup-blocking')
                       opts.add_argument('--disable-features=TranslateUI')
                       opts.add_argument('--disable-gpu')
+                      
+                      # --- تحسينات أداء كروم لمنع التقطيع ---
+                      opts.add_argument('--disable-background-timer-throttling')
+                      opts.add_argument('--disable-backgrounding-occluded-windows')
+                      opts.add_argument('--disable-renderer-backgrounding')
+                      opts.add_argument('--force-color-profile=srgb')
+                      
                       opts.add_experimental_option("excludeSwitches", ["enable-automation"])
                       opts.add_experimental_option('useAutomationExtension', False)
                       opts.add_argument('--disable-blink-features=AutomationControlled')
@@ -138,10 +145,12 @@ jobs:
                       
                       tee_output = "|".join(outputs)
 
+                      # --- تحسينات FFmpeg لتقليل استهلاك المعالج وتثبيت الفريمات ---
                       ffmpeg_cmd = [
                           'ffmpeg', '-y',
-                          '-thread_queue_size', '1024',
+                          '-thread_queue_size', '512',
                           '-f', 'x11grab',
+                          '-draw_mouse', '0',
                           '-framerate', '60',
                           '-s', f'{width}x{height}',
                           '-i', f":{disp.display}",
@@ -150,9 +159,10 @@ jobs:
                           '-c:v', 'libx264',
                           '-preset', 'ultrafast',
                           '-tune', 'zerolatency',
-                          '-b:v', '4000k',
-                          '-maxrate', '4000k',
-                          '-bufsize', '8000k',
+                          '-threads', '2',
+                          '-b:v', '2500k',
+                          '-maxrate', '2500k',
+                          '-bufsize', '5000k',
                           '-r', '60',
                           '-g', '120',
                           '-keyint_min', '120',
