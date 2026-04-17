@@ -248,7 +248,7 @@ jobs:
                       ]
 
                       ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
-                      active_wait(driver, 3600, control_url)
+                      active_wait(driver, 6150, control_url)
               finally:
                   if ffmpeg_proc:
                       ffmpeg_proc.kill()
