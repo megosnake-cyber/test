@@ -51,7 +51,7 @@ jobs:
 
           # إعدادات البث
           URL1_CONTROL = "https://meja.do.am/work/url1.txt"
-          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycby9TJczwYz7M-6900sKgp1-G8srLVVPIl-SLy-ft7Y1DdTAxs7XkzkmLGXXbBsQguKHLg/exec"
+          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbwUcgvFJWPSQq64HAjJZTNQFq0cWdPf7Fwi74yNCNwLYkE10C2gOb223JH2nFc1N8zwfQ/exec"
           SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRr0IRkhXkovj2TyYUN3c_dPI11CPUZ0Dt05-QU2E0uW9ZCGDXKIffmPTz-NhKzuWAjoTeQf2cxTw58/pub?output=csv"
 
           last_comment_index = -1
