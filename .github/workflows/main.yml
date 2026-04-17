@@ -40,8 +40,7 @@ jobs:
       - name: Create Python Script
         run: |
           cat << 'EOF' > main.py
-          import os, subprocess, time, requests, signal, csv
-          from io import StringIO
+          import os, subprocess, time, requests, signal
           from pyvirtualdisplay import Display
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
@@ -52,9 +51,12 @@ jobs:
           # إعدادات البث
           URL1_CONTROL = "https://meja.do.am/work/url1.txt"
           APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbwUcgvFJWPSQq64HAjJZTNQFq0cWdPf7Fwi74yNCNwLYkE10C2gOb223JH2nFc1N8zwfQ/exec"
-          SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRr0IRkhXkovj2TyYUN3c_dPI11CPUZ0Dt05-QU2E0uW9ZCGDXKIffmPTz-NhKzuWAjoTeQf2cxTw58/pub?output=csv"
+          
+          # رابط JSON الجديد لقراءة التعليقات
+          SHEET_JSON_URL = "https://script.google.com/macros/s/AKfycbyq6hs0txpgIqZzyB8ySyo2RhMPT0sumCJgH9UMQYN11NHW03BEtE4kjzEGLHZt1RRq2Q/exec"
 
-          last_comment_index = -1
+          is_first_run = True
+          seen_comments = set()
           gpt_client = Client()
 
           def kill_all(signum, frame):
@@ -76,32 +78,38 @@ jobs:
               return None
 
           def process_new_comments():
-              global last_comment_index
+              global is_first_run, seen_comments
               try:
-                  res = requests.get(SHEET_CSV_URL, timeout=10)
-                  res.encoding = 'utf-8'
-                  reader = csv.reader(StringIO(res.text))
-                  data = list(reader)
+                  res = requests.get(SHEET_JSON_URL, timeout=10)
+                  data = res.json() # قراءة البيانات بصيغة JSON
                   
-                  current_len = len(data)
-                  # في البداية نتجاهل التعليقات القديمة ونبدأ من اللحظة الحالية
-                  if last_comment_index == -1:
-                      last_comment_index = current_len
+                  # في البداية نتجاهل التعليقات القديمة الموجودة
+                  if is_first_run:
+                      for row in data:
+                          if len(row) >= 6:
+                              signature = f"{row[0]}_{row[5]}_{row[2]}"
+                              seen_comments.add(signature)
+                      is_first_run = False
                       return
                   
-                  if current_len > last_comment_index:
-                      for i in range(last_comment_index, current_len):
-                          row = data[i]
-                          if len(row) > 2:
-                              username = row[0].strip()
-                              comment = row[2].strip()
+                  # فحص التعليقات الجديدة
+                  for row in data:
+                      if len(row) >= 6:
+                          username = str(row[0]).strip()
+                          comment = str(row[2]).strip()
+                          timestamp = str(row[5]).strip()
+                          
+                          if not username or not comment:
+                              continue
                               
-                              if not username or not comment:
-                                  continue
-                              
+                          # إنشاء بصمة فريدة للتعليق
+                          signature = f"{username}_{timestamp}_{comment}"
+                          
+                          if signature not in seen_comments:
+                              seen_comments.add(signature)
                               print(f"New comment from {username}: {comment}")
                               
-                              # إعداد أمر توجيه GPT
+                              # إعداد أمر توجيه GPT باللغة الإنجليزية كصانع محتوى
                               prompt = f"Act as a professional, respectful, and engaging gaming content creator streaming live. A viewer named '{username}' just said: '{comment}'. Respond ONLY in English, even if the comment is in another language. Keep the response very smart, respectful, conversational, and directly related to gaming. Keep it brief (1 to 3 sentences max)."
                               
                               try:
@@ -116,14 +124,13 @@ jobs:
                                   # تحويل النص لرد صوتي بواسطة Edge TTS (صوت معلق واقعي)
                                   subprocess.run(['edge-tts', '--text', reply_text, '--voice', 'en-US-ChristopherNeural', '--write-media', 'reply.mp3'])
                                   
-                                  # تشغيل الصوت داخل البث
-                                  subprocess.run(['paplay', 'reply.mp3'])
+                                  # تشغيل الصوت داخل البث لكي يسمعه المشاهدون
+                                  subprocess.run(['paplay', '--device=Sink1', 'reply.mp3'])
                               except Exception as e:
                                   print(f"Error generating AI reply or audio: {e}")
                                   
-                      last_comment_index = current_len
               except Exception as e:
-                  print(f"Error fetching comments from sheet: {e}")
+                  print(f"Error fetching comments from JSON: {e}")
 
           def active_wait(driver, duration, control_url=None):
               start_time = time.time()
