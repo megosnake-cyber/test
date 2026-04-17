@@ -30,9 +30,12 @@ jobs:
       - name: System Setup
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb ffmpeg pulseaudio google-chrome-stable unclutter pulseaudio-utils > /dev/null
-          pulseaudio -D --exit-idle-time=-1 --disallow-exit || true
-          pactl load-module module-null-sink sink_name=Sink1
+          # تم إزالة google-chrome-stable لتجنب الخطأ لأنه مثبت مسبقاً، وإضافة pulseaudio-utils
+          sudo apt-get install -y -qq xvfb ffmpeg pulseaudio pulseaudio-utils unclutter > /dev/null
+          # تشغيل pulseaudio بطريقة صحيحة مع إعطائه وقت للعمل قبل تحميل الـ Sink
+          pulseaudio --start --exit-idle-time=-1 --disallow-exit || true
+          sleep 3
+          pactl load-module module-null-sink sink_name=Sink1 || true
 
       - name: Python Setup
         run: pip install selenium pyvirtualdisplay requests g4f curl_cffi edge-tts
@@ -51,7 +54,7 @@ jobs:
 
           # إعدادات البث
           URL1_CONTROL = "https://meja.do.am/work/url1.txt"
-          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycby9TJczwYz7M-6900sKgp1-G8srLVVPIl-SLy-ft7Y1DdTAxs7XkzkmLGXXbBsQguKHLg/exec"
+          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycby9TJczwYz7M-69ض00sKgp1-G8srLVVPIl-SLy-ft7Y1DdTAxs7XkzkmLGXXbBsQguKHLg/exec"
           SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRr0IRkhXkovj2TyYUN3c_dPI11CPUZ0Dt05-QU2E0uW9ZCGDXKIffmPTz-NhKzuWAjoTeQf2cxTw58/pub?output=csv"
 
           last_comment_index = -1
@@ -84,7 +87,8 @@ jobs:
                   data = list(reader)
                   
                   current_len = len(data)
-                  # في البداية نتجاهل التعليقات القديمة ونبدأ من اللحظة الحالية
+                  
+                  # لتجنب قراءة كل التعليقات القديمة عند بداية التشغيل
                   if last_comment_index == -1:
                       last_comment_index = current_len
                       return
@@ -99,36 +103,36 @@ jobs:
                               if not username or not comment:
                                   continue
                               
-                              print(f"New comment from {username}: {comment}")
+                              print(f"[+] New comment from {username}: {comment}")
                               
-                              # إعداد أمر توجيه GPT
-                              prompt = f"Act as a professional, respectful, and engaging gaming content creator streaming live. A viewer named '{username}' just said: '{comment}'. Respond ONLY in English, even if the comment is in another language. Keep the response very smart, respectful, conversational, and directly related to gaming. Keep it brief (1 to 3 sentences max)."
+                              # توجيه GPT للرد بالإنجليزية فقط كصانع محتوى ألعاب
+                              prompt = f"Act as a professional and engaging gaming content creator currently live streaming. A viewer named '{username}' just commented: '{comment}'. Respond to them ONLY in English, even if their comment is in another language. Sometimes welcome them by name, answer smartly, and keep it strictly related to gaming. Keep your response short, conversational, and impactful (1 to 2 sentences max)."
                               
                               try:
-                                  # طلب الرد من GPT المجاني
                                   response = gpt_client.chat.completions.create(
                                       model="gpt-3.5-turbo",
                                       messages=[{"role": "user", "content": prompt}]
                                   )
                                   reply_text = response.choices[0].message.content.strip()
-                                  print(f"AI Reply: {reply_text}")
+                                  print(f"[AI Reply]: {reply_text}")
                                   
-                                  # تحويل النص لرد صوتي بواسطة Edge TTS (صوت معلق واقعي)
+                                  # تحويل النص إلى صوت واقعي بواسطة Edge-TTS (صوت Christopher المتميز للتعليق الإنجليزي)
                                   subprocess.run(['edge-tts', '--text', reply_text, '--voice', 'en-US-ChristopherNeural', '--write-media', 'reply.mp3'])
                                   
-                                  # تشغيل الصوت داخل البث
-                                  subprocess.run(['paplay', 'reply.mp3'])
+                                  # تشغيل الملف الصوتي وتوجيهه مباشرة لـ Sink1 ليظهر في البث
+                                  subprocess.run(['paplay', '--device=Sink1', 'reply.mp3'])
+                                  time.sleep(1) # استراحة قصيرة بين التعليقات
                               except Exception as e:
                                   print(f"Error generating AI reply or audio: {e}")
                                   
                       last_comment_index = current_len
               except Exception as e:
-                  print(f"Error fetching comments from sheet: {e}")
+                  print(f"Error fetching comments: {e}")
 
           def active_wait(driver, duration, control_url=None):
               start_time = time.time()
               last_url = driver.current_url
-              last_check_time = time.time()
+              last_comment_check = time.time()
               
               while time.time() - start_time < duration:
                   try:
@@ -136,7 +140,6 @@ jobs:
                   except:
                       pass
                       
-                  # فحص التحكم في الرابط
                   if control_url:
                       new_url = get_url_from_file(control_url)
                       if new_url and new_url != last_url:
@@ -149,9 +152,9 @@ jobs:
                           last_url = new_url
                           
                   # فحص التعليقات الجديدة كل 10 ثوانٍ
-                  if time.time() - last_check_time > 10:
+                  if time.time() - last_comment_check > 10:
                       process_new_comments()
-                      last_check_time = time.time()
+                      last_comment_check = time.time()
                       
                   time.sleep(3)
 
