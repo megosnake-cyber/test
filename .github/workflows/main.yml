@@ -1,224 +1,1357 @@
-name: Perpetual Dual Stream
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <title>Google Snake MOD</title>
+    <style>
+        body {margin: 200px 60px;
+    background-color: #000000;
+       
+}
+        
+        #topBar {
+    background-color: #47772d;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-sizing: border-box;
+    color: white;
+    font-size: 20px;
+    font-weight: bold;
+}
 
-on:
-  workflow_dispatch:
-  repository_dispatch:
-    types: [restart-session]
+        .stat {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0 10px;
+        }
+        .icon { width: 25px; height: 25px; }
 
-concurrency:
-  group: streaming-group
-  cancel-in-progress: true
+        #gameContainer {
+            position: relative;
+            border: 30px solid #558b37;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+          
+        }
 
-jobs:
-  stream:
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-      contents: write
+        canvas { display: block; background-color: #a2d149; justify-self: center;}
 
-    steps:
-      - uses: actions/checkout@v4
+        .controls { display: flex; gap: 12px; align-items: center; }
 
-      - name: 🧹 Delete Old Logs
-        uses: Mattraks/delete-workflow-runs@v2
-        with:
-          token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          retain_days: 0
-          keep_minimum_runs: 1
+        .control-btn {
+            cursor: pointer;
+            fill: white;
+            width: 22px;
+            height: 22px;
+            opacity: 0.9;
+            transition: 0.2s;
+        }
+        .control-btn:hover { opacity: 1; transform: scale(1.1); }
+        .muted { fill: #ff4d4d; }
+        
+        /* شاشة التحميل */
+        #loadingScreen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #4a752c;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+      
+      /* تنسيق قائمة المتصدرين */
+        #leaderboard {
+    border-radius: 10px;
+    color: white;
+    font-family: 'Segoe UI', sans-serif;
+    min-width: 200px; font-size: 20px;
+}
+        .lb-title { text-align: center; font-weight: bold; margin-bottom: 5px; border-bottom: 1px solid #aaa; }
+        .lb-item {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    margin-bottom: 5px;
+   
+}
+        .lb-img { width: 50px; height: 50px; border-radius: 50%; margin-right: 8px; border: 1px solid #fff; }
+        .lb-count {font-size: 30px; background: #ffcc00; color: black; padding: 1px 6px; border-radius: 10px; font-weight: bold;  margin: 0 5px;}
+      
+    </style>
+</head>
+<body>
+  
+<div style=" display: flex; flex-direction: column; ">
+  
+</div>
+  <div>
+  <div id="leaderboard" style="display: none;">
+    <div class="lb-title">🏆 Top 3 Winners</div>
+    <div id="lb-list" style="
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between; margin: 10px;
+"></div>
+</div>
+  
+  
+    <div id="loadingScreen">
+        <div class="loader"></div>
+        <div id="loadingText"></div>
+    </div>
 
-      - name: System Setup
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb ffmpeg pulseaudio google-chrome-stable unclutter > /dev/null
-          pulseaudio -D --exit-idle-time=-1 --disallow-exit || true
-          pactl load-module module-null-sink sink_name=Sink1
+    <div id="topBar">
+        <div style="display: flex; flex-direction: row;"> 
+            <div class="stat">
+                <img src="https://meja.do.am/aaa/cookie.png" class="icon">
+                <span id="scoreVal">0</span>
+            </div>
 
-      - name: Python Setup
-        run: pip install selenium pyvirtualdisplay requests
+            <div class="stat">
+                <img src="https://www.google.com/logos/fnbx/snake_arcade/pixel/v21/px_trophy_00.png" class="icon">
+                <span id="highScoreVal">0</span>
+            </div> 
+        </div>
 
-      - name: Create Python Script
-        run: |
-          cat << 'EOF' > main.py
-          import os, subprocess, time, requests, signal
-          from pyvirtualdisplay import Display
-          from selenium import webdriver
-          from selenium.webdriver.chrome.options import Options
-          from selenium.webdriver.common.by import By
-          from multiprocessing import Process
+        <div class="controls">
+            <svg class="control-btn" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+            <svg id="muteBtn" class="control-btn" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+            <svg class="control-btn" viewBox="0 0 24 24" style="width: 20px;"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </div>
+    </div>
 
-          # إعدادات البث
-          URL1_CONTROL = "https://meja.do.am/work/url1.txt"
-          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbwdVaCnCfcwFVnyY1wEOOWQawopiDTDEzfS2wcPMhWAG3VBHNJ-4AAwIKX80NjBWaMJ/exec"
+    <div id="gameContainer">
+        <canvas id="gameCanvas" style="
+    WIDTH: 100%;
+"></canvas></div>
 
-          def kill_all(signum, frame):
-              os._exit(0)
+</div>
+  
+  <div style="width:100%;height: 570px;overflow:hidden; display: none;" >
+  <iframe src="https://livecounts.nl/yt-sub-counter/?c=UCvdshrdrVmCp31YTWSf_lCw&amp;t=1&amp;o=0&amp;ch=1" style="
+      width: 158%;
+      height: 100%;
+      border:none;
+      transform: translate(-17%, -30%);
+    ">
+  </iframe></div>
+  
+  </div>
+  
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreElement = document.getElementById('scoreVal');
+    const highScoreElement = document.getElementById('highScoreVal');
+    const muteBtn = document.getElementById('muteBtn');
+    const topBar = document.getElementById('topBar');
+    const loadingScreen = document.getElementById('loadingScreen');
+    const loadingText = document.getElementById('loadingText');
 
-          signal.signal(signal.SIGTERM, kill_all)
-          signal.signal(signal.SIGINT, kill_all)
+    const gridW = 18;
+    const gridH = 16; 
+    let cellSize = 30; 
 
-          def get_url_from_file(control_url):
-              try:
-                  res = requests.get(f"{control_url}?t={int(time.time())}", timeout=5)
-                  lines = [l.strip() for l in res.text.strip().split('\n') if l.strip()]
-                  for line in lines:
-                      parts = line.split()
-                      if len(parts) >= 2 and parts[1] == "1":
-                          return parts[0]
-              except:
-                  pass
-              return None
+    const baseURL = "https://meja.do.am/aaa/";
 
-          def active_wait(driver, duration, control_url=None):
-              start_time = time.time()
-              last_url = driver.current_url
-              while time.time() - start_time < duration:
-                  try:
-                      driver.find_element(By.TAG_NAME, 'body').click()
-                  except:
-                      pass
-                  if control_url:
-                      new_url = get_url_from_file(control_url)
-                      if new_url and new_url != last_url:
-                          driver.delete_all_cookies()
-                          driver.execute_script("window.localStorage.clear();")
-                          driver.execute_script("window.sessionStorage.clear();")
-                          driver.execute_cdp_cmd('Network.clearBrowserCache', {})
-                          driver.execute_cdp_cmd('Network.clearBrowserCookies', {})
-                          driver.get(new_url)
-                          last_url = new_url
-                  time.sleep(3)
+    // ==========================================
+    // 1. نظام جلب البيانات (Fetch System)
+    // ==========================================
+    let usersData = []; // هنا سيتم تخزين اللاعبين بصورهم
 
-          def start_stream(youtube_key, kick_key, sink_name, control_url, apps_script_url, initial_delay=0):
-              try:
-                  print("Triggering Google Apps Script to create a new stream...")
-                  requests.get(apps_script_url, timeout=60, allow_redirects=True)
-                  print("Apps Script triggered. Waiting for stream to be ready...")
-                  time.sleep(10)
-              except Exception as e:
-                  print(f"Error triggering Apps Script: {e}")
+    function runGameNow() {
+        // إخفاء زر البدء
+        document.getElementById('startOverlay').style.display = 'none';
+        
+        // تشغيل الصوت
+        tryUnlockAudio();
+        
+        // تشغيل اللعبة (وهي ستقوم بالتجميد تلقائياً بفضل دالة resetGame)
+        if (typeof startGame === "function") {
+            startGame();
+        }
+    }
+  
+  // === نظام المتصدرين ===
+    // تحميل البيانات المحفوظة سابقاً
+    let leaderboard = JSON.parse(localStorage.getItem('snakeLeaderboard')) || [];
 
-              if initial_delay > 0:
-                  time.sleep(initial_delay)
-              
-              width, height = 720, 1280
-              os.environ['PULSE_SINK'] = sink_name
-              disp = Display(visible=0, size=(width, height), backend='xvfb')
-              disp.start()
-              subprocess.Popen(['unclutter', '-idle', '0'])
-              ffmpeg_proc = None
-              try:
-                  target_url = get_url_from_file(control_url)
-                  if target_url:
-                      opts = Options()
-                      opts.add_argument('--no-sandbox')
-                      opts.add_argument('--disable-dev-shm-usage')
-                      opts.add_argument('--autoplay-policy=no-user-gesture-required')
-                      opts.add_argument('--disable-notifications')
-                      opts.add_argument('--disable-infobars')
-                      opts.add_argument('--disable-extensions')
-                      opts.add_argument('--disable-popup-blocking')
-                      opts.add_argument('--disable-features=TranslateUI')
-                      opts.add_argument('--disable-gpu')
-                      
-                      # --- تحسينات أداء كروم لمنع التقطيع ---
-                      opts.add_argument('--disable-background-timer-throttling')
-                      opts.add_argument('--disable-backgrounding-occluded-windows')
-                      opts.add_argument('--disable-renderer-backgrounding')
-                      opts.add_argument('--force-color-profile=srgb')
-                      
-                      opts.add_experimental_option("excludeSwitches", ["enable-automation"])
-                      opts.add_experimental_option('useAutomationExtension', False)
-                      opts.add_argument('--disable-blink-features=AutomationControlled')
-                      opts.add_argument('--hide-scrollbars')
-                      opts.add_argument(f'--app={target_url}')
+    function updateLeaderboardUI() {
+        const listDiv = document.getElementById('lb-list');
+        listDiv.innerHTML = "";
+        
+        // عرض أول 3 فقط
+        leaderboard.slice(0, 3).forEach((p, index) => {
+            const item = document.createElement('div');
+            item.className = 'lb-item';
+            // نستخدم صورة الكوكيز كاحتياطي لو الرابط مش موجود
+            const imgSrc = p.photo || `${baseURL}cookie.png`;
+            item.innerHTML = `
+                <div style="display:flex; align-items:center;">
+                    <span style="margin-right:5px; font-weight:bold;">#${index+1}</span>
+                    <img src="${imgSrc}" class="lb-img">
+                    <span>${p.name}</span>
+                </div>
+                <div class="lb-count">x${p.count}</div>
+            `;
+            listDiv.appendChild(item);
+        });
+    }
 
-                      driver = webdriver.Chrome(options=opts)
-                      time.sleep(8)
+    function registerWin(user) {
+        // 1. التحقق من وجود المستخدم
+        if (!user || !user.name) return;
 
-                      # إعدادات روابط البث المزدوج (Dual Stream)
-                      outputs = []
-                      if youtube_key:
-                          outputs.append(f"[f=flv:onfail=ignore]rtmp://a.rtmp.youtube.com/live2/{youtube_key}")
-                      if kick_key:
-                          outputs.append(f"[f=flv:onfail=ignore]rtmps://fa723fc1b171.global-contribute.live-video.net/app/{kick_key}")
-                      
-                      tee_output = "|".join(outputs)
+        // 2. === التعديل هنا: استبعاد التفاحة/الكوكيز ===
+        // إذا كان رابط الصورة يحتوي على كلمة cookie أو الاسم هو Guest، نخرج من الدالة فوراً
+        if (user.img.src.includes("cookie.png") || user.name === "Guest") {
+            return; // لا تسجل هذا الفوز
+        }
 
-                      # --- تحسينات FFmpeg لتقليل استهلاك المعالج وتثبيت الفريمات ---
-                      ffmpeg_cmd = [
-                          'ffmpeg', '-y',
-                          '-thread_queue_size', '512',
-                          '-f', 'x11grab',
-                          '-draw_mouse', '0',
-                          '-framerate', '60',
-                          '-s', f'{width}x{height}',
-                          '-i', f":{disp.display}",
-                          '-f', 'pulse',
-                          '-i', f"{sink_name}.monitor",
-                          '-c:v', 'libx264',
-                          '-preset', 'ultrafast',
-                          '-tune', 'zerolatency',
-                          '-threads', '2',
-                          '-b:v', '2500k',
-                          '-maxrate', '2500k',
-                          '-bufsize', '5000k',
-                          '-r', '60',
-                          '-g', '120',
-                          '-keyint_min', '120',
-                          '-sc_threshold', '0',
-                          '-pix_fmt', 'yuv420p',
-                          '-c:a', 'aac',
-                          '-b:a', '128k',
-                          '-map', '0:v',
-                          '-map', '1:a',
-                          '-f', 'tee',
-                          tee_output
-                      ]
+        // البحث هل الشخص موجود بالفعل؟
+        const existingPlayer = leaderboard.find(p => p.name === user.name);
+        
+        if (existingPlayer) {
+            existingPlayer.count++; // زيادة عدد مرات الفوز
+            existingPlayer.photo = user.img.src; // تحديث الصورة للأحدث
+        } else {
+            // إضافة فائز جديد
+            leaderboard.push({
+                name: user.name,
+                photo: user.img.src,
+                count: 1
+            });
+        }
 
-                      ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
-                      active_wait(driver, 3600, control_url)
-              finally:
-                  if ffmpeg_proc:
-                      ffmpeg_proc.kill()
-                  try:
-                      driver.quit()
-                  except:
-                      pass
-                  disp.stop()
+        // الترتيب: الأعلى فوزاً في الأول
+        leaderboard.sort((a, b) => b.count - a.count);
 
-          if __name__ == "__main__":
-              R1 = os.environ.get('R1')
-              KICK_KEY = os.environ.get('KICK_KEY')
-              if R1 or KICK_KEY:
-                  start_stream(R1, KICK_KEY, "Sink1", URL1_CONTROL, APPS_SCRIPT_URL1, 0)
-          EOF
+        // الحفظ في المتصفح
+        localStorage.setItem('snakeLeaderboard', JSON.stringify(leaderboard));
+        
+        // تحديث العرض
+        updateLeaderboardUI();
+    }
+  
+    let gameStarted = false; // لتأكد أننا لا نعيد اللعبة بين المباريات
 
-      - name: Run Streaming Script
-        env:
-          R1: ${{ secrets.R1 }}
-          KICK_KEY: ${{ secrets.KICK_KEY }}
-        run: python main.py
+// دالة تحميل اللاعبين من Google Sheet
+async function startRoundWithFetch() {
+    const googleSheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS-8_oziBhZRvHh6XJVMKaM8Yievfi1edBYAbuZev1H9PdjGxBZ-uQ4kQCoZsxO99EA_kQc2Axm2ix4/pub?output=csv";
+    
+    let users = [];
+    const usedNames = new Set();
 
-      - name: Wait & Restart
-        if: always()
-        run: |
-          python - <<'PYTHON'
-          import time, signal, sys
-          stop = False
-          def handler(signum, frame):
-              global stop
-              stop = True
-          signal.signal(signal.SIGTERM, handler)
-          signal.signal(signal.SIGINT, handler)
-          wait_seconds = 60
-          for _ in range(0, wait_seconds):
-              if stop: sys.exit(0)
-              time.sleep(1)
-          PYTHON
+    try {
+        // تم إزالة رسالة التحميل بناء على طلبك
+        // loadingText.innerText = "Start of the match...";
 
-          curl -X POST \
-            -H "Authorization: token ${{ github.token }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/${{ github.repository }}/dispatches \
-            -d '{"event_type": "restart-session"}'
+        const response = await fetch(googleSheetUrl + "&t=" + Date.now());
+        if (response.ok) {
+            const csvText = await response.text();
+            const rows = csvText.split(/\r?\n/);
+
+            for (let i = 0; i < rows.length; i++) {
+                let row = rows[i];
+                if (!row.trim()) continue;
+
+                const cols = row.split(',');
+                if (cols.length >= 2) {
+                    let name = cols[0].trim().replace(/^"|"$/g, '');
+                    let photo = cols[1].trim().replace(/^"|"$/g, '');
+
+                    if (name.includes("timestamp") || name.includes("username")) continue;
+
+                    if (name.startsWith('@') || name.length > 1) {
+                        if (photo.startsWith('http:')) photo = photo.replace('http:', 'https:');
+
+                        if (!usedNames.has(name)) {
+                            users.push({ name: name, photo: photo });
+                            usedNames.add(name);
+                        }
+                    }
+                }
+            }
+        }
+    } catch (err) {
+        console.error("خطأ في الاتصال:", err);
+        // تم إزالة رسالة الخطأ للمستخدم
+        return;
+    }
+
+    if (users.length > 0) {
+        users.sort(() => 0.5 - Math.random());
+
+        // التحقق من وجود بيانات جديدة
+        const oldUsersKey = usersData.map(u => u.name + u.photo).join("|");
+        const newUsersKey = users.map(u => u.name + u.photo).join("|");
+        const hasNewData = oldUsersKey !== newUsersKey;
+
+        // تحديث usersData وإعادة تحميل الصور والكوكيز إذا هناك بيانات جديدة
+        if (hasNewData) {
+    usersData = users;
+    await preloadImages(users);
+    console.log("Detected new users — respawning cookies...");
+    
+    if (!gameStarted) {
+        spawnCookies(); // توليد تفاحات لأول مرة فقط
+    }
+}
+
+        // شغل اللعبة فقط مرة واحدة
+        if (!gameStarted) {
+            loadingScreen.style.display = 'none';
+            startGame();
+            gameStarted = true;
+        }
+
+    } else {
+        // تم إزالة رسالة الفشل
+    }
+}
+
+// دالة يتم استدعاؤها عند انتهاء كل مباراة
+async function onMatchEnd() {
+    console.log("Match ended — Reloading page...");
+    // تم التعديل: إعادة تحميل الصفحة بالكامل لجلب البيانات مرة واحدة فقط عند التحميل الجديد
+    window.location.reload();
+}
+
+
+
+
+async function updateCommentsWithoutReload() {
+    const oldUsers = usersData.map(u => u.name + u.photo).join("|");
+
+  
+
+    // تحقق إذا كانت البيانات جديدة
+    const newUsers = usersData.map(u => u.name + u.photo).join("|");
+    if (newUsers !== oldUsers) {
+        console.log("New users detected, respawning cookies...");
+        spawnCookies(); // توليد الكوكيز باستخدام الصور الجديدة
+    }
+}
+
+
+  
+    function preloadImages(data) {
+        const promises = data.map(user => {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.crossOrigin = "anonymous";
+                img.src = user.photo;
+                img.onload = () => { user.imgElement = img; resolve(); };
+                img.onerror = () => { 
+                    user.imgElement = images['cookie']; // صورة احتياطية
+                    resolve(); 
+                };
+            });
+        });
+        return Promise.all(promises);
+    }
+
+    // ==========================================
+    // 2. إعداد اللعبة
+    // ==========================================
+
+    function resizeGame() {
+        const rect = gameContainer.getBoundingClientRect();
+        const targetWidth = window.innerWidth * 0.95; 
+        const targetHeight = window.innerHeight * 0.50; 
+        const cellByWidth = targetWidth / gridW;
+        const cellByHeight = targetHeight / gridH;
+        cellSize = Math.floor(Math.min(cellByWidth, cellByHeight));
+        canvas.width = cellSize * gridW;
+        canvas.height = cellSize * gridH;
+        topBar.style.width = "100%";
+        topBar.style.maxWidth = "none"; // لإزالة القيد وتوسيع البار بالكامل
+        if(gameActive) draw(); // الرسم فقط إذا اللعبة نشطة
+        else drawGrid(); // رسم الشبكة حتى لو اللعبة لم تبدأ للحفاظ على الشكل
+    }
+
+    window.addEventListener('resize', resizeGame);
+
+    const sounds = {
+        eat: new Audio('https://meja.do.am/akl.mp3'),
+        win: new Audio('https://meja.do.am/fooz.mp3'),
+        lose: new Audio('https://meja.do.am/moot.mp3'),
+        
+        // --- الصوت الأول (الأساسي) ---
+        up: new Audio('https://meja.do.am/wav/3.mp3'),
+        down: new Audio('https://meja.do.am/wav/2.mp3'),
+        left: new Audio('https://meja.do.am/wav/2.mp3'),
+        right: new Audio('https://meja.do.am/wav/1.mp3'),
+
+        // --- الصوت الثاني (الإضافي) ---
+        // يمكنك وضع روابط مختلفة هنا إذا أردت صوتاً مختلفاً، حالياً وضعت نفس الروابط للتجربة
+        up2: new Audio('https://meja.do.am/up.mp3'), 
+        down2: new Audio('https://meja.do.am/down.mp3'),
+        left2: new Audio('https://meja.do.am/left.mp3'),
+        right2: new Audio('https://meja.do.am/right.mp3')
+    };
+
+  // ==========================================
+    // إعدادات مستوى الصوت (من 0.1 إلى 1.0)
+    // ==========================================
+
+    // المجموعة الأولى (الصوت الأساسي - نخليه عالي)
+    sounds.up.volume = 0.3;    // 100%
+    sounds.down.volume = 0.3;
+    sounds.left.volume = 0.3;
+    sounds.right.volume = 0.3;
+
+    // المجموعة الثانية (الصوت الإضافي - نخليه أهدأ شوية)
+    sounds.up2.volume = 0.0;   // 40%
+    sounds.down2.volume = 0.0;
+    sounds.left2.volume = 0.0;
+    sounds.right2.volume = 0.0;
+    
+    // أصوات اللعبة الأخرى
+    sounds.eat.volume = 1.0;
+    sounds.win.volume = 0.5;
+    sounds.lose.volume = 0.5;
+  
+    let audioContextUnlocked = false;
+    function tryUnlockAudio() {
+        if (!audioContextUnlocked) {
+            const promise = sounds.eat.play();
+            if (promise !== undefined) {
+                promise.then(_ => {
+                    sounds.eat.pause();
+                    sounds.eat.currentTime = 0;
+                    audioContextUnlocked = true;
+                }).catch(error => { console.log("Audio autoplay blocked"); });
+            }
+        }
+    }
+    
+    window.addEventListener('load', tryUnlockAudio);
+    window.addEventListener('mousemove', tryUnlockAudio, {once: true});
+    window.addEventListener('click', tryUnlockAudio, {once: true});
+
+    let isMuted = false;
+    muteBtn.onclick = () => {
+        isMuted = !isMuted;
+        muteBtn.classList.toggle('muted', isMuted);
+    };
+
+    function playSound(name) {
+        if (!isMuted && sounds[name]) {
+            sounds[name].currentTime = 0;
+            sounds[name].play().catch(() => {});
+        }
+    }
+
+    let images = {};
+
+    // تحميل الصور الأساسية
+    images['xxax001'] = new Image();
+    images['xxax001'].crossOrigin = "anonymous";
+    images['xxax001'].src = `${baseURL}xxax001.png`;
+    
+    // عندما يتم تحميل صورة الجسم، نبدأ عملية جلب بيانات المستخدمين
+    images['xxax001'].onload = () => {
+        console.log("Assets loaded. Starting game immediately...");
+        
+       
+        // 1. تشغيل اللعبة فوراً بالبيانات الافتراضية
+        startGame(); 
+        
+        // 2. إخفاء شاشة التحميل فوراً
+        loadingScreen.style.display = 'none';
+
+        // 3. البدء في جلب البيانات الحقيقية في الخلفية (بدون تعطيل اللعبة)
+       
+    };
+
+  
+    images['cookie'] = new Image(); // احتياطي
+    images['cookie'].src = `${baseURL}cookie.png`;
+    images['cookie'].crossOrigin = "anonymous";
+
+    images['head_normal'] = new Image();
+    images['head_normal'].src = `${baseURL}head_up0001.png`;
+    images['head_eat'] = new Image();
+    images['head_eat'].src = `${baseURL}zzaaqq0001.png`;
+    images['head_dead'] = new Image();
+    images['head_dead'].src = `${baseURL}zzaaqq0001.png`;
+
+    let snake = [ {x: 2, y: 2}, {x: 1, y: 2}, {x: 0, y: 2} ];
+    let direction = {x: 1, y: 0};
+    let cookies = []; // سيحتوي هذا على الكائنات مع الصور
+    let score = 0;
+let strategyAfter20 = 'safe'; // المتغير الذي سيحفظ اختيار الكمبيوتر
+  // === متغير جديد للذيل الشبحي ===
+let ghostTail = null;
+    let highScore = 0;
+  let isFrozen = false; // متغير لتجميد اللعبة مؤقتاً
+    let gameActive = false; // نبدأ بـ false حتى تكتمل البيانات
+    let lastTime = 0;
+    const moveInterval = 100; 
+    let moveTimer = 0;
+    let pulseScale = 1;
+    let particles = [];
+    let isWinState = false;
+    let aboutToEat = false;
+
+    let headAnim = { frame: 0, timer: 0, speed: 0 };
+    const HEAD_FRAMES = 5;
+
+    // === تعديل: دالة توليد الأهداف لتأخذ صور من القائمة ===
+   function spawnCookies() {
+    cookies = [];
+    const numCookies = 6; // عدد التفاحات
+
+    while (cookies.length < numCookies) {
+        let newCookie;
+        let attempts = 0;
+        do {
+            newCookie = {
+                x: Math.floor(Math.random() * gridW),
+                y: Math.floor(Math.random() * gridH),
+                img: images['cookie'], // الصورة الافتراضية فقط
+                name: ""               // لا أسماء
+            };
+            attempts++;
+        } while (
+            (snake.some(s => s.x === newCookie.x && s.y === newCookie.y) ||
+             cookies.some(c => c.x === newCookie.x && c.y === newCookie.y)) &&
+            attempts < 500
+        );
+        cookies.push(newCookie);
+    }
+}
+
+    // === خوارزميات الذكاء الاصطناعي ===
+    let nextStepMap = {};
+
+
+    // ==========================================
+    // 1. دالة المسار الآمن (المتاهة الذكية) - كانت مفقودة عندك
+    // ==========================================
+    // ==========================================
+// 1. دالة المسار الآمن (نسخة التوسيع الذكي للخرائط الفردية)
+// ==========================================
+function generateSafePath(startX, startY) {
+    nextStepMap = {};
+    
+    // 1. تحديد المنطقة الزوجية الآمنة (القلب)
+    // في حالة 17x15 ستكون المنطقة الآمنة 16x14
+    const safeW = gridW - (gridW % 2); 
+    const safeH = gridH - (gridH % 2); 
+    
+    const mazeCols = safeW / 2;
+    const mazeRows = safeH / 2;
+    const maze = [];
+    
+    // إعداد الشبكة الأساسية
+    for (let y = 0; y < mazeRows; y++) {
+        const row = [];
+        for (let x = 0; x < mazeCols; x++) {
+            row.push({ visited: false, walls: { top: true, right: true, bottom: true, left: true } });
+        }
+        maze.push(row);
+    }
+
+    // خوارزمية بناء المتاهة (Recursive Backtracker)
+    let current = {
+        x: Math.floor(Math.min(startX, safeW - 1) / 2),
+        y: Math.floor(Math.min(startY, safeH - 1) / 2)
+    };
+    maze[current.y][current.x].visited = true;
+    const stack = [current];
+
+    while (stack.length > 0) {
+        const cx = current.x;
+        const cy = current.y;
+        const neighbors = [];
+        if (cy > 0 && !maze[cy - 1][cx].visited) neighbors.push('top');
+        if (cx < mazeCols - 1 && !maze[cy][cx + 1].visited) neighbors.push('right');
+        if (cy < mazeRows - 1 && !maze[cy + 1][cx].visited) neighbors.push('bottom');
+        if (cx > 0 && !maze[cy][cx - 1].visited) neighbors.push('left');
+
+        if (neighbors.length > 0) {
+            const dir = neighbors[Math.floor(Math.random() * neighbors.length)];
+            let nx = cx, ny = cy;
+            if (dir === 'top') { maze[cy][cx].walls.top = false; maze[cy - 1][cx].walls.bottom = false; ny = cy - 1; }
+            else if (dir === 'right') { maze[cy][cx].walls.right = false; maze[cy][cx + 1].walls.left = false; nx = cx + 1; }
+            else if (dir === 'bottom') { maze[cy][cx].walls.bottom = false; maze[cy + 1][cx].walls.top = false; ny = cy + 1; }
+            else if (dir === 'left') { maze[cy][cx].walls.left = false; maze[cy][cx - 1].walls.right = false; nx = cx - 1; }
+            maze[ny][nx].visited = true;
+            stack.push(current);
+            current = { x: nx, y: ny };
+        } else {
+            current = stack.pop();
+        }
+    }
+
+    // تحويل المتاهة إلى مسار حركة (Cycle)
+    for (let y = 0; y < mazeRows; y++) {
+        for (let x = 0; x < mazeCols; x++) {
+            const cell = maze[y][x];
+            const bx = x * 2;
+            const by = y * 2;
+            // منطق التحويل من جدران إلى مسار
+            if (cell.walls.top) nextStepMap[`${bx},${by}`] = {x: bx + 1, y: by};
+            else nextStepMap[`${bx},${by}`] = {x: bx, y: by - 1};
+            
+            if (cell.walls.right) nextStepMap[`${bx+1},${by}`] = {x: bx + 1, y: by + 1};
+            else nextStepMap[`${bx+1},${by}`] = {x: bx + 2, y: by};
+            
+            if (cell.walls.bottom) nextStepMap[`${bx+1},${by+1}`] = {x: bx, y: by + 1};
+            else nextStepMap[`${bx+1},${by+1}`] = {x: bx + 1, y: by + 2};
+            
+            if (cell.walls.left) nextStepMap[`${bx},${by+1}`] = {x: bx, y: by};
+            else nextStepMap[`${bx},${by+1}`] = {x: bx - 1, y: by + 1};
+        }
+    }
+
+    // ==========================================================
+    // المرحلة السحرية: توسيع المسار ليشمل الأطراف الفردية
+    // ==========================================================
+
+    // 1. هل العرض فردي (مثلاً 17)؟ نحتاج دمج العمود الأخير
+    if (gridW % 2 !== 0) {
+        const lastEvenCol = safeW - 1; // العمود 15
+        const oddCol = safeW;          // العمود 16 (وهو السابع عشر)
+        
+        // نمسح العمود قبل الأخير بحثاً عن وصلات نكسرها ونمررها للعمود الجديد
+        for (let y = 0; y < safeH; y++) {
+            const key = `${lastEvenCol},${y}`;
+            const move = nextStepMap[key];
+            
+            // إذا كانت الحركة رأسية (فوق أو تحت) وعلى نفس العمود
+            // نقوم بقطعها وتمريرها عبر العمود الجديد
+            if (move && move.x === lastEvenCol) {
+                const targetY = move.y;
+                
+                // التعديل: بدل الذهاب مباشرة للهدف الرأسي..
+                // 1. اذهب يمين للعمود الجديد
+                nextStepMap[key] = {x: oddCol, y: y};
+                // 2. تحرك رأسياً في العمود الجديد
+                nextStepMap[`${oddCol},${y}`] = {x: oddCol, y: targetY};
+                // 3. عد يساراً للعمود الأصلي
+                nextStepMap[`${oddCol},${targetY}`] = {x: lastEvenCol, y: targetY};
+            }
+        }
+    }
+
+    // 2. هل الطول فردي (مثلاً 15)؟ نحتاج دمج الصف الأخير
+    if (gridH % 2 !== 0) {
+        // نستخدم العرض الكامل (سواء كان 16 أو 17 بعد التوسيع السابق)
+        const currentWidth = gridW; 
+        const lastEvenRow = safeH - 1; // الصف 13
+        const oddRow = safeH;          // الصف 14 (وهو الخامس عشر)
+
+        for (let x = 0; x < currentWidth; x++) {
+            const key = `${x},${lastEvenRow}`;
+            const move = nextStepMap[key];
+
+            // نبحث عن الحركات الأفقية (يمين أو يسار) في الصف قبل الأخير
+            if (move && move.y === lastEvenRow) {
+                const targetX = move.x;
+
+                // التعديل: بدل الذهاب مباشرة للهدف الأفقي..
+                // 1. انزل تحت للصف الجديد
+                nextStepMap[key] = {x: x, y: oddRow};
+                // 2. تحرك أفقياً في الصف الجديد
+                nextStepMap[`${x},${oddRow}`] = {x: targetX, y: oddRow};
+                // 3. اصعد فوق للصف الأصلي
+                nextStepMap[`${targetX},${oddRow}`] = {x: targetX, y: lastEvenRow};
+            }
+        }
+    }
+}
+
+    // ==========================================
+    // 2. دالة الزجزاج (صفوف وأعمدة) - احتفظ بها
+// ==========================================
+function generateZigzagPath() {
+    nextStepMap = {};
+    
+    // اختيار رقم عشوائي من 0 إلى 3 لتحديد النمط
+    // 0: صفوف (عودة يسار) | 1: صفوف (عودة يمين)
+    // 2: أعمدة (عودة علوية) | 3: أعمدة (عودة سفلية)
+    const mode = Math.floor(Math.random() * 4);
+    
+    console.log("Strategic Pattern Mode:", mode);
+
+    for (let x = 0; x < gridW; x++) {
+        for (let y = 0; y < gridH; y++) {
+            let nextX, nextY;
+
+            if (mode === 0) {
+                // =================================================
+                // النمط 0: أفقي كلاسيكي (مسار العودة هو العمود الأيسر 0)
+                // =================================================
+                if (x === 0) { 
+                    if (y === 0) { nextX = 1; nextY = 0; } // قمة العمود: ادخل يمين
+                    else { nextX = 0; nextY = y - 1; }     // اصعد للأعلى
+                } else {
+                    if (y % 2 === 0) { // صف زوجي: يمين
+                        if (x < gridW - 1) { nextX = x + 1; nextY = y; }
+                        else { nextX = x; nextY = y + 1; }
+                    } else { // صف فردي: يسار
+                        if (x > 1) { nextX = x - 1; nextY = y; }
+                        else { 
+                             if (y < gridH - 1) { nextX = x; nextY = y + 1; } // انزل
+                             else { nextX = 0; nextY = y; } // عد للعمود 0
+                        }
+                    }
+                }
+            } 
+            else if (mode === 1) {
+                // =================================================
+                // النمط 1: أفقي معكوس (مسار العودة هو العمود الأيمن الأخير)
+                // =================================================
+                if (x === gridW - 1) { 
+                    if (y === 0) { nextX = x - 1; nextY = 0; } // قمة العمود: ادخل يسار
+                    else { nextX = x; nextY = y - 1; }         // اصعد للأعلى
+                } else {
+                    if (y % 2 === 0) { // صف زوجي: يسار
+                        if (x > 0) { nextX = x - 1; nextY = y; }
+                        else { nextX = x; nextY = y + 1; }
+                    } else { // صف فردي: يمين
+                        if (x < gridW - 2) { nextX = x + 1; nextY = y; }
+                        else { 
+                             if (y < gridH - 1) { nextX = x; nextY = y + 1; } // انزل
+                             else { nextX = gridW - 1; nextY = y; } // عد للعمود الأخير
+                        }
+                    }
+                }
+            } 
+            else if (mode === 2) {
+                // =================================================
+                // النمط 2: عمودي كلاسيكي (مسار العودة هو الصف العلوي 0)
+                // =================================================
+                if (y === 0) {
+                    if (x === 0) { nextX = 0; nextY = 1; } // بداية الصف: انزل
+                    else { nextX = x - 1; nextY = 0; }     // تحرك يساراً للعودة
+                } else {
+                    if (x % 2 === 0) { // عمود زوجي: انزل
+                        if (y < gridH - 1) { nextX = x; nextY = y + 1; }
+                        else { nextX = x + 1; nextY = y; }
+                    } else { // عمود فردي: اصعد
+                        if (y > 1) { nextX = x; nextY = y - 1; }
+                        else { 
+                            if (x < gridW - 1) { nextX = x + 1; nextY = y; } // انتقل لليمين
+                            else { nextX = x; nextY = 0; } // اقفل المسار مع الصف 0
+                        }
+                    }
+                }
+            } 
+            else {
+                // =================================================
+                // النمط 3: عمودي سفلي (مسار العودة هو الصف السفلي الأخير)
+                // =================================================
+                if (y === gridH - 1) {
+                    if (x === 0) { nextX = 0; nextY = y - 1; } // بداية الصف: اصعد
+                    else { nextX = x - 1; nextY = y; }         // تحرك يساراً للعودة
+                } else {
+                    if (x % 2 === 0) { // عمود زوجي: اصعد
+                        if (y > 0) { nextX = x; nextY = y - 1; }
+                        else { nextX = x + 1; nextY = y; }
+                    } else { // عمود فردي: انزل
+                        if (y < gridH - 2) { nextX = x; nextY = y + 1; }
+                        else { 
+                            if (x < gridW - 1) { nextX = x + 1; nextY = y; } // انتقل لليمين
+                            else { nextX = x; nextY = gridH - 1; } // اقفل مع الصف الأخير
+                        }
+                    }
+                }
+            }
+
+            // تخزين الخطوة التالية في الخريطة
+            nextStepMap[`${x},${y}`] = { x: nextX, y: nextY };
+        }
+    }
+}
+
+    // ==========================================
+    // 3. دالة resetGame (معدلة لتختار بين الدالتين السابقتين)
+    // ==========================================
+    function resetGame() {
+    snake = [ {x: 3, y: 7}, {x: 2, y: 7}, {x: 1, y: 7} ]; 
+    direction = {x: 1, y: 0};
+    score = 0;
+    scoreElement.innerText = "0";
+    isWinState = false;
+    aboutToEat = false;
+    particles = [];
+    ghostTail = null;
+
+    spawnCookies(); // توليد تفاحات افتراضية فورًا
+
+    // اختيار الاستراتيجية
+    if (Math.random() < 0.5) {
+        strategyAfter20 = 'zigzag';
+        generateZigzagPath();
+    } else {
+        strategyAfter20 = 'safe';
+        generateSafePath(snake[0].x, snake[0].y);
+    }
+
+    gameActive = true;
+    isFrozen = true; 
+    const randomDelay = Math.floor(Math.random() * 3001) + 2000; 
+    setTimeout(() => { isFrozen = false; }, randomDelay);
+}
+
+   
+
+    function drawGrid() {
+        for (let row = 0; row < gridH; row++) {
+            for (let col = 0; col < gridW; col++) {
+                ctx.fillStyle = (row + col) % 2 === 0 ? '#aad751' : '#a2d149';
+                ctx.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
+            }
+        }
+    }
+
+    function triggerConfetti() {
+        for(let i=0; i<150; i++) {
+            particles.push({
+                x: canvas.width / 2,
+                y: canvas.height / 2,
+                vx: (Math.random() - 0.5) * 15,
+                vy: (Math.random() - 0.5) * 15,
+                life: 1.0,
+                color: `hsl(${Math.random() * 360}, 100%, 50%)`
+            });
+        }
+    }
+
+    function drawConfetti() {
+        particles.forEach((p, index) => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += 0.2; 
+            p.life -= 0.01;
+            ctx.globalAlpha = p.life;
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1.0;
+            if(p.life <= 0) particles.splice(index, 1);
+        });
+    }
+
+    function isSafe(x, y) {
+        return x >= 0 && x < gridW && y >= 0 && y < gridH &&
+                !snake.some(b => b.x === x && b.y === y);
+    }
+
+    function findPathBFS(start, target) {
+        let queue = [start];
+        let cameFrom = {}; 
+        let visited = {};
+        visited[`${start.x},${start.y}`] = true;
+        const k = (p) => `${p.x},${p.y}`;
+
+        while (queue.length > 0) {
+            let current = queue.shift();
+            if (current.x === target.x && current.y === target.y) {
+                let path = [];
+                let temp = current;
+                while (k(temp) !== k(start)) {
+                    path.push(temp);
+                    temp = cameFrom[k(temp)];
+                }
+                return path.reverse();
+            }
+            const moves = [{x:0, y:-1}, {x:0, y:1}, {x:-1, y:0}, {x:1, y:0}];
+            for (let m of moves) {
+                let neighbor = {x: current.x + m.x, y: current.y + m.y};
+                let key = k(neighbor);
+                if (isSafe(neighbor.x, neighbor.y) && !visited[key]) {
+                    visited[key] = true;
+                    cameFrom[key] = current;
+                    queue.push(neighbor);
+                }
+            }
+        }
+        return null;
+    }
+
+   function aiControl() {
+        const head = snake[0];
+        const totalCells = gridW * gridH;
+        const snakePercent = snake.length / totalCells;
+        
+        let shortcutChance = 0;
+
+        // === منطق التحكم ===
+        if (snakePercent < 0.10) {
+            // المرحلة الأولى (< 20%): البحث عن التفاح (هجوم)
+            // نسمح بالاختصار 100% بغض النظر عن الخريطة المرسومة حالياً
+            shortcutChance = 1.0; 
+        } else {
+            // المرحلة الثانية (> 20%): الالتزام بالخريطة
+            // الخريطة تم بناؤها بالفعل في resetGame (سواء كانت زجزاج أو مسارك الآمن)
+            // الآن نلتزم بها بنسبة 100% (صفر اختصارات) لضمان النجاة
+            shortcutChance = 0.02;
+        }
+
+        // 1. الخطوة الافتراضية (من الخريطة التي بنيناها في resetGame)
+        const geometricStep = nextStepMap[`${head.x},${head.y}`];
+        
+        // حماية
+        let geoMove = geometricStep ? 
+            {x: geometricStep.x - head.x, y: geometricStep.y - head.y} : 
+            {x: direction.x, y: direction.y};
+
+        let nextX = 0;
+        let nextY = 0;
+        let moveDecided = false;
+
+        // 2. محاولة الاختصار (تعمل فقط تحت الـ 20%)
+        if (Math.random() < shortcutChance && cookies.length > 0) {
+            let target = cookies[0];
+            let path = findPathBFS(head, target);
+            if (path && path.length > 0) {
+                let potentialX = path[0].x - head.x;
+                let potentialY = path[0].y - head.y;
+                if (isSafe(head.x + potentialX, head.y + potentialY)) {
+                    nextX = potentialX;
+                    nextY = potentialY;
+                    moveDecided = true;
+                }
+            }
+        }
+
+        // 3. التنفيذ (إذا لم نختصر، نتبع الخريطة المرسومة)
+        if (!moveDecided) {
+            nextX = geoMove.x;
+            nextY = geoMove.y;
+        }
+
+        // 4. حماية نهائية
+        if (!isSafe(head.x + nextX, head.y + nextY)) {
+            if (isSafe(head.x + geoMove.x, head.y + geoMove.y)) {
+                nextX = geoMove.x;
+                nextY = geoMove.y;
+            } else {
+                const moves = [{x:0, y:-1}, {x:0, y:1}, {x:-1, y:0}, {x:1, y:0}];
+                for (let m of moves) {
+                    if (isSafe(head.x + m.x, head.y + m.y)) {
+                        nextX = m.x; nextY = m.y; break;
+                    }
+                }
+            }
+        }
+
+        // تحديث الاتجاه
+        let oldDir = direction;
+        if (nextX !== oldDir.x || nextY !== oldDir.y) {
+            if (nextY === -1) {
+                playSound('up');
+                playSound('up2'); // تشغيل الصوت الثاني للصعود
+            } 
+            else if (nextY === 1) {
+                playSound('down');
+                playSound('down2'); // تشغيل الصوت الثاني للنزول
+            } 
+            else if (nextX === -1) {
+                playSound('left');
+                playSound('left2'); // تشغيل الصوت الثاني لليسار
+            } 
+            else if (nextX === 1) {
+                playSound('right');
+                playSound('right2'); // تشغيل الصوت الثاني لليمين
+            }
+        }
+        
+        direction = {x: nextX, y: nextY};
+        const checkNextX = snake[0].x + direction.x;
+        const checkNextY = snake[0].y + direction.y;
+        aboutToEat = cookies.some(c => c.x === checkNextX && c.y === checkNextY);
+    }
+
+    function lerp(a, b, t) { return a + (b - a) * t; }
+
+  
+  
+    // ==========================================
+    // 3. الرسم (تعديل لرسم الدوائر بالصور)
+    // ==========================================
+   function draw(p = 0) {
+        drawGrid();
+        pulseScale = 0.95 + 0.1 * (Math.sin(Date.now() * 0.01) / 2 + 0.5);
+
+        // رسم الكوكيز (كما هي)
+        cookies.forEach(c => {
+            const imgToDraw = (c.img && c.img.complete) ? c.img : images['cookie'];
+            const isBackupCookie = (imgToDraw === images['cookie']);
+            if (imgToDraw) {
+                const size = cellSize * pulseScale;
+                const offset = (cellSize - size) / 2;
+                const centerX = c.x * cellSize + offset + size / 2;
+                const centerY = c.y * cellSize + offset + size / 2;
+                const radius = size / 2;
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                ctx.closePath();
+                ctx.save();
+                ctx.clip(); 
+                let drawSize = size;
+                let drawX = c.x * cellSize + offset;
+                let drawY = c.y * cellSize + offset;
+                if (isBackupCookie) {
+                      drawSize = size * 0.80; 
+                      const adjust = (size - drawSize) / 2;
+                      drawX += adjust;
+                      drawY += adjust;
+                }
+                ctx.drawImage(imgToDraw, drawX, drawY, drawSize, drawSize);
+                ctx.restore(); 
+                
+            }
+        });
+
+        // ============================================================
+        // 2. الرسم الدقيق للجسم (مع الذيل الشبحي)
+        // ============================================================
+        
+        // ... (داخل دالة draw بعد رسم الكوكيز) ...
+
+        // ============================================================
+        // 2. الرسم الدقيق للجسم (بدون وهج وبدون اهتزاز)
+        // ============================================================
+        
+        let renderList = [...snake];
+        if (ghostTail) renderList.push(ghostTail);
+
+        // حساب الإحداثيات
+        renderList.forEach(block => {
+            const startX = (block.oldX !== undefined) ? block.oldX : block.x;
+            const startY = (block.oldY !== undefined) ? block.oldY : block.y;
+            // تقريب القيم لأقرب جزء من المئة لمنع كسور البكسلات المشوهة
+            block.renderX = (startX + (block.x - startX) * p) * cellSize;
+            block.renderY = (startY + (block.y - startY) * p) * cellSize;
+        });
+
+        if (images['xxax001'].complete && renderList.length > 1) {
+            const bodyImg = images['xxax001'];
+
+            // === التعديل الذهبي: الحساب بناءً على الشبكة الثابتة ===
+            // بدلاً من حساب المسافات بالبكسل (التي تتغير وتسبب اهتزاز)، نستخدم العدد الثابت
+            // كل قطعة تساوي 1 وحدة. الطول الكلي = عدد القطع - 1
+            const totalUnits = renderList.length - 1;
+            
+            // ارتفاع القطعة الواحدة في الصورة المصدر
+            const segmentSrcHeight = bodyImg.height / totalUnits;
+
+            for (let i = 1; i < renderList.length; i++) {
+                const block = renderList[i];
+                const prevBlock = renderList[i - 1];
+
+                const dx = prevBlock.renderX - block.renderX;
+                const dy = prevBlock.renderY - block.renderY;
+                
+                // حساب الزاوية
+                const angle = Math.atan2(dy, dx) + Math.PI / 2;
+
+                // === حساب القص من الصورة بدقة متناهية ===
+                // القطعة رقم 1 تأخذ الجزء الأول، رقم 2 تأخذ الثاني.. وهكذا
+                // i-1 لأننا نبدأ الـ loop من 1
+                const sourceY = (i - 1) * segmentSrcHeight;
+                let sourceH = segmentSrcHeight;
+
+                // منع الخروج عن حدود الصورة في آخر قطعة بسبب كسور القسمة
+                if (sourceY + sourceH > bodyImg.height) {
+                    sourceH = bodyImg.height - sourceY;
+                }
+
+                ctx.save();
+                ctx.translate(block.renderX + cellSize / 2, block.renderY + cellSize / 2);
+                ctx.rotate(angle);
+
+                // الرسم:
+                // التداخل (Overlap) أصبح 0.2 فقط لإغلاق الفجوة دون صنع وهج
+                ctx.drawImage(
+                    bodyImg,
+                    0, sourceY, bodyImg.width, sourceH,
+                    -cellSize / 2, -cellSize / 2, cellSize, cellSize + 0.2
+                );
+
+                ctx.restore();
+            }
+        }
+
+        // ============================================================
+        // ============================================================
+        // 3. رسم الرأس
+        // ============================================================
+        let headState = "normal";
+        if (!gameActive && !isWinState) headState = "dead";
+        else if (aboutToEat && snake.length < (gridW * gridH) - 1) headState = "eat";
+
+        const head = snake[0];
+        
+        // === التعديل هنا: تثبيت الرأس عند الفوز ===
+        let x, y;
+        
+        if (isWinState) {
+            // عند الفوز: نستخدم الموقع الحقيقي الثابت (بدون interpolation)
+            // هذا سيمنع الاهتزاز تماماً
+            x = head.x * cellSize;
+            y = head.y * cellSize;
+        } else {
+            // أثناء اللعب: نستخدم الموقع الناعم
+            x = head.renderX;
+            y = head.renderY;
+        }
+        // ==========================================
+        
+        // باقي الكود كما هو...
+        let angle = 0;
+        if (direction.x === 1) angle = Math.PI / 2;      
+        else if (direction.x === -1) angle = -Math.PI / 2; 
+        else if (direction.y === 1) angle = Math.PI;     
+        else angle = 0;                                
+
+        const headImage = images['head_normal'];
+        const overlay = images['head_' + headState];
+        const now = Date.now();
+        const frame = Math.floor((now / 150) % HEAD_FRAMES);
+
+        if (headImage && headImage.complete) {
+            const fw = headImage.width / HEAD_FRAMES;
+            ctx.save();
+            ctx.translate(x + cellSize / 2, y + cellSize / 2);
+            ctx.rotate(angle);
+            ctx.drawImage(headImage, frame * fw, 0, fw, headImage.height, -cellSize / 2, -cellSize / 2, cellSize, cellSize);
+            ctx.restore();
+        }
+
+        // رسم تأثير الأكل أو الموت (الفم/اللسان)
+        if (headState !== "normal" && overlay && overlay.complete) {
+            const fw2 = overlay.width / HEAD_FRAMES;
+            
+            // === التعديل هنا ===
+            // غيرنا الرقم من 0.1 إلى 0.6 لدفعه للأمام
+            // كلما زاد الرقم، ابتعد الفم عن الرأس أكثر
+            const mouthX = x + direction.x * cellSize * 0.6;
+            const mouthY = y + direction.y * cellSize * 0.6;
+            
+            ctx.save();
+            ctx.translate(mouthX + cellSize / 2, mouthY + cellSize / 2);
+            ctx.rotate(angle);
+            ctx.drawImage(overlay, frame * fw2, 0, fw2, overlay.height, -cellSize / 2, -cellSize / 2, cellSize, cellSize);
+            ctx.restore();
+        }
+
+        if (particles.length > 0) drawConfetti();
+        
+        if (isFrozen) {
+            ctx.fillStyle = "rgba(0, 0, 0, 0.0)";
+            ctx.fillRect(0, canvas.height / 2 - 40, canvas.width, 80);
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 40px Arial";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText("", canvas.width / 2, canvas.height / 2);
+        }
+    }
+    function update(timestamp) {
+        if (!lastTime) lastTime = timestamp;
+        let delta = timestamp - lastTime;
+        lastTime = timestamp;
+
+        // تحديث أنيميشن الرأس
+        headAnim.timer += delta;
+        if (headAnim.timer > headAnim.speed) {
+            headAnim.frame = (headAnim.frame + 1) % HEAD_FRAMES;
+            headAnim.timer = 0;
+        }
+
+        if (!isFrozen) {
+            moveTimer += delta;
+            while (moveTimer >= moveInterval) {
+                if (gameActive) {
+                    aiControl(); 
+                    move();
+                }
+                moveTimer -= moveInterval;
+            }
+        }
+
+       // إذا انتهت اللعبة (موت)، نثبت الحركة عند 1 لمنع الاهتزاز
+let progress = (gameActive) ? (moveTimer / moveInterval) : 1;
+        
+        // === الحل هنا ===
+        // جعلنا الرسم يعمل دائماً لتستمر حركة العيون والكونفيتي أثناء الانتظار
+        draw(progress); 
+        
+        requestAnimationFrame(update);
+    }
+
+   function move() {
+    // حفظ الأماكن القديمة (للحركة الناعمة)
+    snake.forEach(part => {
+        part.oldX = part.x;
+        part.oldY = part.y;
+    });
+
+    // 1. حساب المربع القادم (الرأس المستقبلي)
+    const head = { x: snake[0].x + direction.x, y: snake[0].y + direction.y };
+    
+    // 2. التحقق من التصادم (الحائط أو الجسم)
+    if (head.x < 0 || head.x >= gridW || head.y < 0 || head.y >= gridH || 
+        snake.some(b => b.x === head.x && b.y === head.y)) {
+        if (!isWinState) {
+            playSound('lose');
+            if (score > highScore) { highScore = score; highScoreElement.innerText = highScore; }
+            gameActive = false;
+            
+            // التصحيح: نحذف onMatchEnd من هنا ونجعل العداد يستدعيها بدلاً من resetGame
+            setTimeout(() => { onMatchEnd(); }, 9000);
+        }
+        return;
+    }
+
+    // 3. التحقق هل المربع القادم يحتوي على تفاحة؟ (قبل التحرك)
+    let potentialAteIndex = -1;
+    cookies.forEach((c, i) => {
+        if (head.x === c.x && head.y === c.y) potentialAteIndex = i;
+    });
+
+    // === التعديل الجذري هنا ===
+    // إذا كان طول الثعبان هو (الحد الأقصى - 1) والمربع القادم فيه تفاحة
+    // إذن هذا هو الفوز! نعلن الفوز فوراً دون أن نتحرك خطوة للأمام
+    if (snake.length === (gridW * gridH) - 1 && potentialAteIndex !== -1) {
+        
+        // 1. زيادة السكور يدوياً (لأننا لن نأكلها فعلياً)
+        score++;
+        scoreElement.innerText = score;
+        
+        // 2. نحتفظ ببيانات الفائز
+        const lastUserEaten = cookies[potentialAteIndex];
+
+        // 3. نعلن الفوز (بدون تحريك الثعبان وبدون حذف التفاحة)
+        winGame(lastUserEaten);
+        
+        return; // توقف هنا! لا تنفذ باقي الكود
+    }
+
+    // 4. تنفيذ الحركة (إذا لم نفز بعد)
+    snake.unshift(head);
+    
+    // ضبط خروج الرأس بسلاسة
+    if (snake[1]) {
+        snake[0].oldX = snake[1].x;
+        snake[0].oldY = snake[1].y;
+    } else {
+         snake[0].oldX = head.x - direction.x;
+         snake[0].oldY = head.y - direction.y;
+    }
+
+    ghostTail = null;
+
+    // 5. التعامل مع الأكل (في الحالات العادية غير الأخيرة)
+    if (potentialAteIndex !== -1) {
+        score++;
+        scoreElement.innerText = score;
+        playSound('eat');
+        
+        // هنا لا داعي للتحقق من الفوز لأننا تحققنا منه في الأعلى
+        // ... داخل دالة move ...
+        // الجزء الخاص بتوليد قطعة جديدة بعد الأكل
+        
+        let newCookie; 
+        let attempts = 0;
+        do {
+            const randomUser = usersData[Math.floor(Math.random() * usersData.length)];
+            newCookie = { 
+                x: Math.floor(Math.random() * gridW), 
+                y: Math.floor(Math.random() * gridH), 
+                img: images['cookie.png'],  // التفاحة الأساسية
+                name: ""                  // بدون أسماء
+            };
+            attempts++;
+        } while (
+            (snake.some(s => s.x === newCookie.x && s.y === newCookie.y) || 
+            cookies.some(c => c.x === newCookie.x && c.y === newCookie.y)) && 
+            
+            // === التعديل هنا ===
+            // غيرنا الرقم من 100 إلى 5000
+            // هذا يعطي الكمبيوتر وقتاً أطول للبحث عن مكان فارغ بدقة وسط الزحام
+            attempts < 5000
+        );
+        cookies[potentialAteIndex] = newCookie;
+
+    } else {
+        // حذف الذيل (الحركة العادية)
+        const popped = snake.pop();
+        ghostTail = popped;
+        const newTail = snake[snake.length - 1];
+        ghostTail.oldX = popped.x; 
+        ghostTail.oldY = popped.y;
+        ghostTail.x = newTail.oldX;
+        ghostTail.y = newTail.oldY;
+    }
+}
+
+    function winGame(winnerUser) {
+        gameActive = false; 
+        isWinState = true;
+        playSound('win');
+        
+        // تم حذف onMatchEnd(); من هنا
+        
+        triggerConfetti();
+        
+        if (score > highScore) {
+            highScore = score;
+            highScoreElement.innerText = highScore;
+        }
+
+        // تسجيل الفائز في القائمة
+        if (winnerUser) {
+            registerWin(winnerUser);
+        }
+
+        // التصحيح: العداد يستدعي onMatchEnd لتبدأ الدورة الجديدة بشكل صحيح
+        setTimeout(() => { onMatchEnd(); }, 9000);
+    }
+
+  
+  
+    function startGame() {
+        resizeGame();
+        resetGame();
+        requestAnimationFrame(update);
+    }
+// ... (بعد نهاية كل الدوال) ...
+
+    // استدعاء أولي لضبط حجم الخريطة فوراً حتى لا تتغير عند التحميل
+    resizeGame();
+
+    // استدعاء أولي لعرض القائمة فور فتح الصفحة (حتى لو لم تبدأ اللعبة)
+    updateLeaderboardUI(); 
+
+    // تشغيل الأنيميشن (Loop)
+    requestAnimationFrame(update);
+</script>
+  
+  
+</body>
+</html>
