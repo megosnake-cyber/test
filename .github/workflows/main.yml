@@ -30,7 +30,8 @@ jobs:
       - name: System Setup
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb ffmpeg pulseaudio google-chrome-stable unclutter pulseaudio-utils > /dev/null
+          # تم إضافة mpg123 لتشغيل ملفات الـ mp3 الخاصة بالردود الصوتية بكفاءة
+          sudo apt-get install -y -qq xvfb ffmpeg pulseaudio google-chrome-stable unclutter pulseaudio-utils mpg123 > /dev/null
           pulseaudio -D --exit-idle-time=-1 --disallow-exit || true
           pactl load-module module-null-sink sink_name=Sink1
 
@@ -81,7 +82,7 @@ jobs:
               global is_first_run, seen_comments
               try:
                   res = requests.get(SHEET_JSON_URL, timeout=10)
-                  data = res.json() # قراءة البيانات بصيغة JSON
+                  data = res.json()
                   
                   # في البداية نتجاهل التعليقات القديمة الموجودة
                   if is_first_run:
@@ -90,6 +91,7 @@ jobs:
                               signature = f"{row[0]}_{row[5]}_{row[2]}"
                               seen_comments.add(signature)
                       is_first_run = False
+                      print("✅ Initial comments loaded and ignored.", flush=True)
                       return
                   
                   # فحص التعليقات الجديدة
@@ -107,7 +109,7 @@ jobs:
                           
                           if signature not in seen_comments:
                               seen_comments.add(signature)
-                              print(f"New comment from {username}: {comment}")
+                              print(f"\n💬 New comment from {username}: {comment}", flush=True)
                               
                               # إعداد أمر توجيه GPT باللغة الإنجليزية كصانع محتوى
                               prompt = f"Act as a professional, respectful, and engaging gaming content creator streaming live. A viewer named '{username}' just said: '{comment}'. Respond ONLY in English, even if the comment is in another language. Keep the response very smart, respectful, conversational, and directly related to gaming. Keep it brief (1 to 3 sentences max)."
@@ -119,20 +121,20 @@ jobs:
                                       messages=[{"role": "user", "content": prompt}]
                                   )
                                   reply_text = response.choices[0].message.content.strip()
-                                  print(f"AI Reply: {reply_text}")
+                                  print(f"🤖 AI Reply: {reply_text}", flush=True)
                                   
                                   # تحويل النص لرد صوتي بواسطة Edge TTS (صوت معلق واقعي)
                                   subprocess.run(['edge-tts', '--text', reply_text, '--voice', 'en-US-ChristopherNeural', '--write-media', 'reply.mp3'])
                                   
-                                  # تشغيل الصوت داخل البث بواسطة ffmpeg بدلا من paplay لضمان عمل الـ mp3
+                                  # تشغيل الصوت داخل البث بواسطة mpg123 (مضمون وخفيف جداً لملفات mp3)
                                   if os.path.exists('reply.mp3'):
-                                      subprocess.run(['ffmpeg', '-loglevel', 'error', '-re', '-i', 'reply.mp3', '-f', 'pulse', 'Sink1'])
-                                      os.remove('reply.mp3') # تنظيف الملف بعد تشغيله
+                                      subprocess.run(['mpg123', '-q', 'reply.mp3'])
+                                      os.remove('reply.mp3')
                               except Exception as e:
-                                  print(f"Error generating AI reply or audio: {e}")
+                                  print(f"❌ Error generating AI reply or audio: {e}", flush=True)
                                   
               except Exception as e:
-                  print(f"Error fetching comments from JSON: {e}")
+                  print(f"❌ Error fetching comments from JSON: {e}", flush=True)
 
           def active_wait(driver, duration, control_url=None):
               start_time = time.time()
@@ -156,6 +158,7 @@ jobs:
                           driver.execute_cdp_cmd('Network.clearBrowserCookies', {})
                           driver.get(new_url)
                           last_url = new_url
+                          print(f"🌐 URL Changed to: {new_url}", flush=True)
                           
                   # فحص التعليقات الجديدة كل 10 ثوانٍ
                   if time.time() - last_check_time > 10:
@@ -166,18 +169,18 @@ jobs:
 
           def start_stream(youtube_key, kick_key, sink_name, control_url, apps_script_url, initial_delay=0):
               try:
-                  print("Triggering Google Apps Script to create a new stream...")
+                  print("🚀 Triggering Google Apps Script to create a new stream...", flush=True)
                   requests.get(apps_script_url, timeout=60, allow_redirects=True)
-                  print("Apps Script triggered. Waiting for stream to be ready...")
+                  print("⏳ Apps Script triggered. Waiting for stream to be ready...", flush=True)
                   time.sleep(10)
               except Exception as e:
-                  print(f"Error triggering Apps Script: {e}")
+                  print(f"❌ Error triggering Apps Script: {e}", flush=True)
 
               if initial_delay > 0:
                   time.sleep(initial_delay)
               
               width, height = 720, 1280
-              os.environ['PULSE_SINK'] = sink_name
+              os.environ['PULSE_SINK'] = sink_name # هذا يضمن أن أداة mpg123 سترسل الصوت مباشرة إلى Sink1
               disp = Display(visible=0, size=(width, height), backend='xvfb')
               disp.start()
               subprocess.Popen(['unclutter', '-idle', '0'])
@@ -213,9 +216,11 @@ jobs:
                       
                       tee_output = "|".join(outputs)
 
+                      print("🎥 Starting FFmpeg stream...", flush=True)
                       ffmpeg_cmd = [
                           'ffmpeg', '-y',
-                          '-loglevel', 'error', # إخفاء السجل المزعج
+                          '-loglevel', 'error', # إخفاء السجلات العادية
+                          '-nostats',           # إخفاء رسالة الـ frame المزعجة
                           '-thread_queue_size', '1024',
                           '-f', 'x11grab',
                           '-framerate', '60',
@@ -264,7 +269,8 @@ jobs:
         env:
           R1: ${{ secrets.R1 }}
           KICK_KEY: ${{ secrets.KICK_KEY }}
-        run: python main.py
+        # تم إضافة -u ليقوم بعرض الـ log فورا ولا يخبئه (Unbuffered)
+        run: python -u main.py
 
       - name: Wait & Restart
         if: always()
