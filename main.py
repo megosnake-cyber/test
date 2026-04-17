@@ -1,114 +1,214 @@
-import os
-import subprocess
-import time
-import requests
-from pyvirtualdisplay import Display
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
+name: Perpetual Dual Stream
 
-# --- 🛠️ إعدادات التحكم والروابط ---
-CONTROL_URL = "https://meja.do.am/asd/url.txt" # رابط التحكم الخاص بك
-DEFAULT_URL = "https://meja.do.am/asd/obs1.html"
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [restart-session]
 
-def get_live_url():
-    try:
-        # إضافة t لمنع الكاش وجلب الرابط اللحظي
-        response = requests.get(f"{CONTROL_URL}?t={int(time.time())}", timeout=5)
-        if response.status_code == 200:
-            link = response.text.strip()
-            if link.startswith("http"): return link
-    except: pass
-    return None
+concurrency:
+  group: streaming-group
+  cancel-in-progress: true
 
-# 1. تشغيل الشاشة الوهمية (مقاس عمودي 720x1280)
-# لو عايز أفقر غير المقاس لـ 1280x720
-WIDTH, HEIGHT = 720, 1280 
-disp = Display(visible=0, size=(WIDTH, HEIGHT), backend='xvfb')
-disp.start()
-os.environ['DISPLAY'] = ":" + str(disp.display)
+jobs:
+  stream:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
 
-# 2. إعدادات الكروم الاحترافية
-opts = Options()
-opts.add_argument('--no-sandbox')
-opts.add_argument('--disable-dev-shm-usage')
-opts.add_argument('--disable-gpu')
-opts.add_argument(f'--window-size={WIDTH},{HEIGHT}')
-opts.add_argument('--autoplay-policy=no-user-gesture-required')
-opts.add_argument('--hide-scrollbars')
-# وضع الكشك لإخفاء شريط العنوان تماماً
-opts.add_argument('--kiosk') 
-# إعدادات كسر السواد وإجبار الرندر
-opts.add_argument('--disable-features=CalculateNativeWinOcclusion')
-opts.add_argument('--force-color-profile=srgb')
+    steps:
+      - uses: actions/checkout@v4
 
-driver = webdriver.Chrome(options=opts)
+      - name: 🧹 Delete Old Logs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 0
+          keep_minimum_runs: 1
 
-# الدخول للموقع
-current_url = get_live_url() or DEFAULT_URL
-driver.get(current_url)
+      - name: System Setup
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb ffmpeg pulseaudio google-chrome-stable unclutter > /dev/null
+          pulseaudio -D --exit-idle-time=-1 --disallow-exit || true
+          pactl load-module module-null-sink sink_name=Sink1
 
-print("🌐 الموقع فتح.. تشغيل محرك الهز لمنع السكون...")
-time.sleep(20)
+      - name: Python Setup
+        run: pip install selenium pyvirtualdisplay requests
 
-# 🚀 سكريبت الهز الذكي لضمان استمرار الرندر والصوت
-driver.execute_script("""
-    setInterval(() => {
-        window.scrollBy(0, 1);
-        window.scrollBy(0, -1);
-    }, 50);
-""")
+      - name: Create Python Script
+        run: |
+          cat << 'EOF' > main.py
+          import os, subprocess, time, requests, signal
+          from pyvirtualdisplay import Display
+          from selenium import webdriver
+          from selenium.webdriver.chrome.options import Options
+          from selenium.webdriver.common.by import By
+          from multiprocessing import Process
 
-RTMP_KEY = os.environ.get('RTMP_KEY')
+          # إعدادات البث
+          URL1_CONTROL = "https://meja.do.am/work/url1.txt"
+          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycby9TJczwYz7M-6900sKgp1-G8srLVVPIl-SLy-ft7Y1DdTAxs7XkzkmLGXXbBsQguKHLg/exec"
 
-# 3. محرك البث (FFmpeg) مع ضبط التزامن (Sync)
-# الإضافات الجديدة: -use_wallclock_as_timestamps و -af aresample
-ffmpeg_cmd = [
-    'ffmpeg', '-y',
-    '-thread_queue_size', '4096', # رفعنا الكيوي لامتصاص ضغط البيانات
-    '-f', 'x11grab', 
-    '-draw_mouse', '0',
-    '-framerate', '60', 
-    '-video_size', f'{WIDTH}x{HEIGHT}', 
-    '-i', os.environ['DISPLAY'],
-    
-    '-f', 'pulse', 
-    '-thread_queue_size', '4096',
-    '-i', 'default',
-    
-    '-c:v', 'libx264', 
-    '-preset', 'ultrafast', 
-    '-tune', 'zerolatency', 
-    '-b:v', '5000k', 
-    '-maxrate', '5000k', 
-    '-bufsize', '10000k',
-    '-pix_fmt', 'yuv420p', 
-    '-g', '120', 
-    
-    '-c:a', 'aac', 
-    '-b:a', '128k', 
-    '-ar', '44100',
-    # أهم أمر للمزامنة: يجبر الصوت على اللحاق بالصورة إذا حدث تأخير
-    '-af', 'aresample=async=1:min_hard_comp=0.100000:first_pts=0',
-    
-    '-f', 'flv', f"rtmp://a.rtmp.youtube.com/live2/{RTMP_KEY}"
-]
+          def kill_all(signum, frame):
+              os._exit(0)
 
-print(f"📡 بدأ البث المباشر (وضع ملئ الشاشة + تزامن صوتي)...")
-process = subprocess.Popen(ffmpeg_cmd)
+          signal.signal(signal.SIGTERM, kill_all)
+          signal.signal(signal.SIGINT, kill_all)
 
-try:
-    while True:
-        # فحص الرابط من موقعك كل 10 ثوانٍ للتحكم الفوري
-        new_url = get_live_url()
-        if new_url and new_url != current_url:
-            print(f"🔄 تغيير الرابط فورياً إلى: {new_url}")
-            driver.get(new_url)
-            current_url = new_url
-        
-        time.sleep(10)
-except KeyboardInterrupt:
-    print("🛑 إيقاف...")
-finally:
-    process.terminate()
-    driver.quit()
-    disp.stop()
+          def get_url_from_file(control_url):
+              try:
+                  res = requests.get(f"{control_url}?t={int(time.time())}", timeout=5)
+                  lines = [l.strip() for l in res.text.strip().split('\n') if l.strip()]
+                  for line in lines:
+                      parts = line.split()
+                      if len(parts) >= 2 and parts[1] == "1":
+                          return parts[0]
+              except:
+                  pass
+              return None
+
+          def active_wait(driver, duration, control_url=None):
+              start_time = time.time()
+              last_url = driver.current_url
+              while time.time() - start_time < duration:
+                  try:
+                      driver.find_element(By.TAG_NAME, 'body').click()
+                  except:
+                      pass
+                  if control_url:
+                      new_url = get_url_from_file(control_url)
+                      if new_url and new_url != last_url:
+                          driver.delete_all_cookies()
+                          driver.execute_script("window.localStorage.clear();")
+                          driver.execute_script("window.sessionStorage.clear();")
+                          driver.execute_cdp_cmd('Network.clearBrowserCache', {})
+                          driver.execute_cdp_cmd('Network.clearBrowserCookies', {})
+                          driver.get(new_url)
+                          last_url = new_url
+                  time.sleep(3)
+
+          def start_stream(youtube_key, kick_key, sink_name, control_url, apps_script_url, initial_delay=0):
+              try:
+                  print("Triggering Google Apps Script to create a new stream...")
+                  requests.get(apps_script_url, timeout=60, allow_redirects=True)
+                  print("Apps Script triggered. Waiting for stream to be ready...")
+                  time.sleep(10)
+              except Exception as e:
+                  print(f"Error triggering Apps Script: {e}")
+
+              if initial_delay > 0:
+                  time.sleep(initial_delay)
+              
+              width, height = 720, 1280
+              os.environ['PULSE_SINK'] = sink_name
+              disp = Display(visible=0, size=(width, height), backend='xvfb')
+              disp.start()
+              subprocess.Popen(['unclutter', '-idle', '0'])
+              ffmpeg_proc = None
+              try:
+                  target_url = get_url_from_file(control_url)
+                  if target_url:
+                      opts = Options()
+                      opts.add_argument('--no-sandbox')
+                      opts.add_argument('--disable-dev-shm-usage')
+                      opts.add_argument('--autoplay-policy=no-user-gesture-required')
+                      opts.add_argument('--disable-notifications')
+                      opts.add_argument('--disable-infobars')
+                      opts.add_argument('--disable-extensions')
+                      opts.add_argument('--disable-popup-blocking')
+                      opts.add_argument('--disable-features=TranslateUI')
+                      opts.add_argument('--disable-gpu')
+                      opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+                      opts.add_experimental_option('useAutomationExtension', False)
+                      opts.add_argument('--disable-blink-features=AutomationControlled')
+                      opts.add_argument('--hide-scrollbars')
+                      opts.add_argument(f'--app={target_url}')
+
+                      driver = webdriver.Chrome(options=opts)
+                      time.sleep(8)
+
+                      # إعدادات روابط البث المزدوج (Dual Stream)
+                      outputs = []
+                      if youtube_key:
+                          outputs.append(f"[f=flv:onfail=ignore]rtmp://a.rtmp.youtube.com/live2/{youtube_key}")
+                      if kick_key:
+                          outputs.append(f"[f=flv:onfail=ignore]rtmps://fa723fc1b171.global-contribute.live-video.net/app/{kick_key}")
+                      
+                      tee_output = "|".join(outputs)
+
+                      ffmpeg_cmd = [
+                          'ffmpeg', '-y',
+                          '-thread_queue_size', '1024',
+                          '-f', 'x11grab',
+                          '-framerate', '60',
+                          '-s', f'{width}x{height}',
+                          '-i', f":{disp.display}",
+                          '-f', 'pulse',
+                          '-i', f"{sink_name}.monitor",
+                          '-c:v', 'libx264',
+                          '-preset', 'ultrafast',
+                          '-tune', 'zerolatency',
+                          '-b:v', '4000k',
+                          '-maxrate', '4000k',
+                          '-bufsize', '8000k',
+                          '-r', '60',
+                          '-g', '120',
+                          '-keyint_min', '120',
+                          '-sc_threshold', '0',
+                          '-pix_fmt', 'yuv420p',
+                          '-c:a', 'aac',
+                          '-b:a', '128k',
+                          '-map', '0:v',
+                          '-map', '1:a',
+                          '-f', 'tee',
+                          tee_output
+                      ]
+
+                      ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
+                      active_wait(driver, 3600, control_url)
+              finally:
+                  if ffmpeg_proc:
+                      ffmpeg_proc.kill()
+                  try:
+                      driver.quit()
+                  except:
+                      pass
+                  disp.stop()
+
+          if __name__ == "__main__":
+              R1 = os.environ.get('R1')
+              KICK_KEY = os.environ.get('KICK_KEY')
+              if R1 or KICK_KEY:
+                  start_stream(R1, KICK_KEY, "Sink1", URL1_CONTROL, APPS_SCRIPT_URL1, 0)
+          EOF
+
+      - name: Run Streaming Script
+        env:
+          R1: ${{ secrets.R1 }}
+          KICK_KEY: ${{ secrets.KICK_KEY }}
+        run: python main.py
+
+      - name: Wait & Restart
+        if: always()
+        run: |
+          python - <<'PYTHON'
+          import time, signal, sys
+          stop = False
+          def handler(signum, frame):
+              global stop
+              stop = True
+          signal.signal(signal.SIGTERM, handler)
+          signal.signal(signal.SIGINT, handler)
+          wait_seconds = 60
+          for _ in range(0, wait_seconds):
+              if stop: sys.exit(0)
+              time.sleep(1)
+          PYTHON
+
+          curl -X POST \
+            -H "Authorization: token ${{ github.token }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/dispatches \
+            -d '{"event_type": "restart-session"}'
