@@ -30,13 +30,12 @@ jobs:
       - name: System Setup
         run: |
           sudo apt-get update -qq
-          # تم إضافة mpg123 لتشغيل ملفات الـ mp3 الخاصة بالردود الصوتية بكفاءة
-          sudo apt-get install -y -qq xvfb ffmpeg pulseaudio google-chrome-stable unclutter pulseaudio-utils mpg123 > /dev/null
+          sudo apt-get install -y -qq xvfb ffmpeg pulseaudio google-chrome-stable unclutter > /dev/null
           pulseaudio -D --exit-idle-time=-1 --disallow-exit || true
           pactl load-module module-null-sink sink_name=Sink1
 
       - name: Python Setup
-        run: pip install selenium pyvirtualdisplay requests g4f curl_cffi edge-tts
+        run: pip install selenium pyvirtualdisplay requests
 
       - name: Create Python Script
         run: |
@@ -46,19 +45,10 @@ jobs:
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
           from selenium.webdriver.common.by import By
-          from multiprocessing import Process
-          from g4f.client import Client
 
           # إعدادات البث
           URL1_CONTROL = "https://meja.do.am/work/url1.txt"
           APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbwdVaCnCfcwFVnyY1wEOOWQawopiDTDEzfS2wcPMhWAG3VBHNJ-4AAwIKX80NjBWaMJ/exec"
-          
-          # رابط JSON الجديد لقراءة التعليقات
-          SHEET_JSON_URL = "https://script.google.com/macros/s/AKfycbyq6hs0txpgIqZzyB8ySyo2RhMPT0sumCJgH9UMQYN11NHW03BEtE4kjzEGLHZt1RRq2Q/exec"
-
-          is_first_run = True
-          seen_comments = set()
-          gpt_client = Client()
 
           def kill_all(signum, frame):
               os._exit(0)
@@ -78,76 +68,14 @@ jobs:
                   pass
               return None
 
-          def process_new_comments():
-              global is_first_run, seen_comments
-              try:
-                  res = requests.get(SHEET_JSON_URL, timeout=10)
-                  data = res.json()
-                  
-                  # في البداية نتجاهل التعليقات القديمة الموجودة
-                  if is_first_run:
-                      for row in data:
-                          if len(row) >= 6:
-                              signature = f"{row[0]}_{row[5]}_{row[2]}"
-                              seen_comments.add(signature)
-                      is_first_run = False
-                      print("✅ Initial comments loaded and ignored.", flush=True)
-                      return
-                  
-                  # فحص التعليقات الجديدة
-                  for row in data:
-                      if len(row) >= 6:
-                          username = str(row[0]).strip()
-                          comment = str(row[2]).strip()
-                          timestamp = str(row[5]).strip()
-                          
-                          if not username or not comment:
-                              continue
-                              
-                          # إنشاء بصمة فريدة للتعليق
-                          signature = f"{username}_{timestamp}_{comment}"
-                          
-                          if signature not in seen_comments:
-                              seen_comments.add(signature)
-                              print(f"\n💬 New comment from {username}: {comment}", flush=True)
-                              
-                              # إعداد أمر توجيه GPT باللغة الإنجليزية كصانع محتوى
-                              prompt = f"Act as a professional, respectful, and engaging gaming content creator streaming live. A viewer named '{username}' just said: '{comment}'. Respond ONLY in English, even if the comment is in another language. Keep the response very smart, respectful, conversational, and directly related to gaming. Keep it brief (1 to 3 sentences max)."
-                              
-                              try:
-                                  # طلب الرد من GPT المجاني
-                                  response = gpt_client.chat.completions.create(
-                                      model="gpt-3.5-turbo",
-                                      messages=[{"role": "user", "content": prompt}]
-                                  )
-                                  reply_text = response.choices[0].message.content.strip()
-                                  print(f"🤖 AI Reply: {reply_text}", flush=True)
-                                  
-                                  # تحويل النص لرد صوتي بواسطة Edge TTS (صوت معلق واقعي)
-                                  subprocess.run(['edge-tts', '--text', reply_text, '--voice', 'en-US-ChristopherNeural', '--write-media', 'reply.mp3'])
-                                  
-                                  # تشغيل الصوت داخل البث بواسطة mpg123 (مضمون وخفيف جداً لملفات mp3)
-                                  if os.path.exists('reply.mp3'):
-                                      subprocess.run(['mpg123', '-q', 'reply.mp3'])
-                                      os.remove('reply.mp3')
-                              except Exception as e:
-                                  print(f"❌ Error generating AI reply or audio: {e}", flush=True)
-                                  
-              except Exception as e:
-                  print(f"❌ Error fetching comments from JSON: {e}", flush=True)
-
           def active_wait(driver, duration, control_url=None):
               start_time = time.time()
               last_url = driver.current_url
-              last_check_time = time.time()
-              
               while time.time() - start_time < duration:
                   try:
                       driver.find_element(By.TAG_NAME, 'body').click()
                   except:
                       pass
-                      
-                  # فحص التحكم في الرابط
                   if control_url:
                       new_url = get_url_from_file(control_url)
                       if new_url and new_url != last_url:
@@ -158,32 +86,27 @@ jobs:
                           driver.execute_cdp_cmd('Network.clearBrowserCookies', {})
                           driver.get(new_url)
                           last_url = new_url
-                          print(f"🌐 URL Changed to: {new_url}", flush=True)
-                          
-                  # فحص التعليقات الجديدة كل 10 ثوانٍ
-                  if time.time() - last_check_time > 10:
-                      process_new_comments()
-                      last_check_time = time.time()
-                      
                   time.sleep(3)
 
           def start_stream(youtube_key, kick_key, sink_name, control_url, apps_script_url, initial_delay=0):
               try:
-                  print("🚀 Triggering Google Apps Script to create a new stream...", flush=True)
+                  print("Triggering Google Apps Script to create a new stream...")
                   requests.get(apps_script_url, timeout=60, allow_redirects=True)
-                  print("⏳ Apps Script triggered. Waiting for stream to be ready...", flush=True)
+                  print("Apps Script triggered. Waiting for stream to be ready...")
                   time.sleep(10)
               except Exception as e:
-                  print(f"❌ Error triggering Apps Script: {e}", flush=True)
+                  print(f"Error triggering Apps Script: {e}")
 
               if initial_delay > 0:
                   time.sleep(initial_delay)
               
               width, height = 720, 1280
-              os.environ['PULSE_SINK'] = sink_name # هذا يضمن أن أداة mpg123 سترسل الصوت مباشرة إلى Sink1
-              disp = Display(visible=0, size=(width, height), backend='xvfb')
+              os.environ['PULSE_SINK'] = sink_name
+              
+              disp = Display(visible=0, size=(width, height), backend='xvfb', color_depth=24)
               disp.start()
               subprocess.Popen(['unclutter', '-idle', '0'])
+              
               ffmpeg_proc = None
               try:
                   target_url = get_url_from_file(control_url)
@@ -198,6 +121,10 @@ jobs:
                       opts.add_argument('--disable-popup-blocking')
                       opts.add_argument('--disable-features=TranslateUI')
                       opts.add_argument('--disable-gpu')
+                      opts.add_argument(f'--window-size={width},{height}')
+                      # إيقاف أي تأثيرات تستهلك المعالج من المتصفح
+                      opts.add_argument('--disable-smooth-scrolling')
+                      
                       opts.add_experimental_option("excludeSwitches", ["enable-automation"])
                       opts.add_experimental_option('useAutomationExtension', False)
                       opts.add_argument('--disable-blink-features=AutomationControlled')
@@ -207,7 +134,6 @@ jobs:
                       driver = webdriver.Chrome(options=opts)
                       time.sleep(8)
 
-                      # إعدادات روابط البث المزدوج (Dual Stream)
                       outputs = []
                       if youtube_key:
                           outputs.append(f"[f=flv:onfail=ignore]rtmp://a.rtmp.youtube.com/live2/{youtube_key}")
@@ -216,42 +142,46 @@ jobs:
                       
                       tee_output = "|".join(outputs)
 
-                      print("🎥 Starting FFmpeg stream...", flush=True)
+                      # الحل المستقر: تخفيف حمل المعالج لمنع التقطيع بدون تكرار الفريمات
                       ffmpeg_cmd = [
                           'ffmpeg', '-y',
-                          '-loglevel', 'error', # إخفاء السجلات العادية
-                          '-nostats',           # إخفاء رسالة الـ frame المزعجة
+                          '-v', 'error',
+                          '-nostdin',
                           '-thread_queue_size', '1024',
                           '-f', 'x11grab',
-                          '-framerate', '60',
+                          '-r', '60', # التقاط 60 فريم طبيعي من الشاشة
+                          '-draw_mouse', '0',
                           '-s', f'{width}x{height}',
                           '-i', f":{disp.display}",
+                          '-thread_queue_size', '1024',
                           '-f', 'pulse',
                           '-i', f"{sink_name}.monitor",
                           '-c:v', 'libx264',
                           '-preset', 'ultrafast',
                           '-tune', 'zerolatency',
-                          '-b:v', '4000k',
-                          '-maxrate', '4000k',
-                          '-bufsize', '8000k',
-                          '-r', '60',
+                          '-threads', '2', # تنظيم استخدام المعالج لمنع الاختناق
+                          '-b:v', '2500k', # بت ريت مثالي لدقة 720 العمودية لتخفيف المعالجة
+                          '-maxrate', '2500k',
+                          '-bufsize', '5000k',
                           '-g', '120',
-                          '-keyint_min', '120',
-                          '-sc_threshold', '0',
                           '-pix_fmt', 'yuv420p',
                           '-c:a', 'aac',
                           '-b:a', '128k',
+                          '-ar', '44100',
                           '-map', '0:v',
                           '-map', '1:a',
                           '-f', 'tee',
                           tee_output
                       ]
 
-                      ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
-                      active_wait(driver, 6150, control_url)
+                      ffmpeg_proc = subprocess.Popen(ffmpeg_cmd, preexec_fn=os.setsid)
+                      active_wait(driver, 5600, control_url)
               finally:
                   if ffmpeg_proc:
-                      ffmpeg_proc.kill()
+                      try:
+                          os.killpg(os.getpgid(ffmpeg_proc.pid), signal.SIGTERM)
+                      except:
+                          ffmpeg_proc.kill()
                   try:
                       driver.quit()
                   except:
@@ -269,8 +199,7 @@ jobs:
         env:
           R1: ${{ secrets.R1 }}
           KICK_KEY: ${{ secrets.KICK_KEY }}
-        # تم إضافة -u ليقوم بعرض الـ log فورا ولا يخبئه (Unbuffered)
-        run: python -u main.py
+        run: python main.py
 
       - name: Wait & Restart
         if: always()
