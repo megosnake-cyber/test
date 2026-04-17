@@ -51,7 +51,7 @@ jobs:
 
           # إعدادات البث
           URL1_CONTROL = "https://meja.do.am/work/url1.txt"
-          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbwUcgvFJWPSQq64HAjJZTNQFq0cWdPf7Fwi74yNCNwLYkE10C2gOb223JH2nFc1N8zwfQ/exec"
+          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbwdVaCnCfcwFVnyY1wEOOWQawopiDTDEzfS2wcPMhWAG3VBHNJ-4AAwIKX80NjBWaMJ/exec"
           
           # رابط JSON الجديد لقراءة التعليقات
           SHEET_JSON_URL = "https://script.google.com/macros/s/AKfycbyq6hs0txpgIqZzyB8ySyo2RhMPT0sumCJgH9UMQYN11NHW03BEtE4kjzEGLHZt1RRq2Q/exec"
