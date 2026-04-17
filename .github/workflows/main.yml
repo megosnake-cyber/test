@@ -1,4 +1,4 @@
-name: Perpetual Dual Stream
+name: Perpetual Stream
 
 on:
   workflow_dispatch:
@@ -88,14 +88,12 @@ jobs:
                           last_url = new_url
                   time.sleep(3)
 
-          def start_stream(youtube_key, kick_key, sink_name, control_url, apps_script_url, initial_delay=0):
+          def start_stream(youtube_key, sink_name, control_url, apps_script_url, initial_delay=0):
               try:
-                  print("Triggering Google Apps Script to create a new stream...")
                   requests.get(apps_script_url, timeout=60, allow_redirects=True)
-                  print("Apps Script triggered. Waiting for stream to be ready...")
                   time.sleep(10)
-              except Exception as e:
-                  print(f"Error triggering Apps Script: {e}")
+              except Exception:
+                  pass
 
               if initial_delay > 0:
                   time.sleep(initial_delay)
@@ -122,8 +120,9 @@ jobs:
                       opts.add_argument('--disable-features=TranslateUI')
                       opts.add_argument('--disable-gpu')
                       opts.add_argument(f'--window-size={width},{height}')
-                      # إيقاف أي تأثيرات تستهلك المعالج من المتصفح
                       opts.add_argument('--disable-smooth-scrolling')
+                      opts.add_argument('--disable-background-timer-throttling')
+                      opts.add_argument('--disable-renderer-backgrounding')
                       
                       opts.add_experimental_option("excludeSwitches", ["enable-automation"])
                       opts.add_experimental_option('useAutomationExtension', False)
@@ -134,48 +133,43 @@ jobs:
                       driver = webdriver.Chrome(options=opts)
                       time.sleep(8)
 
-                      outputs = []
-                      if youtube_key:
-                          outputs.append(f"[f=flv:onfail=ignore]rtmp://a.rtmp.youtube.com/live2/{youtube_key}")
-                      if kick_key:
-                          outputs.append(f"[f=flv:onfail=ignore]rtmps://fa723fc1b171.global-contribute.live-video.net/app/{kick_key}")
-                      
-                      tee_output = "|".join(outputs)
+                      youtube_rtmp = f"rtmp://a.rtmp.youtube.com/live2/{youtube_key}"
 
-                      # الحل المستقر: تخفيف حمل المعالج لمنع التقطيع بدون تكرار الفريمات
                       ffmpeg_cmd = [
                           'ffmpeg', '-y',
                           '-v', 'error',
                           '-nostdin',
-                          '-thread_queue_size', '1024',
+                          '-thread_queue_size', '4096',
                           '-f', 'x11grab',
-                          '-r', '60', # التقاط 60 فريم طبيعي من الشاشة
                           '-draw_mouse', '0',
+                          '-framerate', '60',
                           '-s', f'{width}x{height}',
                           '-i', f":{disp.display}",
-                          '-thread_queue_size', '1024',
+                          '-thread_queue_size', '4096',
                           '-f', 'pulse',
                           '-i', f"{sink_name}.monitor",
                           '-c:v', 'libx264',
                           '-preset', 'ultrafast',
+                          '-profile:v', 'baseline',
                           '-tune', 'zerolatency',
-                          '-threads', '2', # تنظيم استخدام المعالج لمنع الاختناق
-                          '-b:v', '2500k', # بت ريت مثالي لدقة 720 العمودية لتخفيف المعالجة
+                          '-threads', '2',
+                          '-b:v', '2500k',
                           '-maxrate', '2500k',
                           '-bufsize', '5000k',
+                          '-r', '60',
                           '-g', '120',
+                          '-keyint_min', '120',
+                          '-sc_threshold', '0',
                           '-pix_fmt', 'yuv420p',
                           '-c:a', 'aac',
                           '-b:a', '128k',
                           '-ar', '44100',
-                          '-map', '0:v',
-                          '-map', '1:a',
-                          '-f', 'tee',
-                          tee_output
+                          '-f', 'flv',
+                          youtube_rtmp
                       ]
 
                       ffmpeg_proc = subprocess.Popen(ffmpeg_cmd, preexec_fn=os.setsid)
-                      active_wait(driver, 5600, control_url)
+                      active_wait(driver, 4900, control_url)
               finally:
                   if ffmpeg_proc:
                       try:
@@ -190,15 +184,13 @@ jobs:
 
           if __name__ == "__main__":
               R1 = os.environ.get('R1')
-              KICK_KEY = os.environ.get('KICK_KEY')
-              if R1 or KICK_KEY:
-                  start_stream(R1, KICK_KEY, "Sink1", URL1_CONTROL, APPS_SCRIPT_URL1, 0)
+              if R1:
+                  start_stream(R1, "Sink1", URL1_CONTROL, APPS_SCRIPT_URL1, 0)
           EOF
 
       - name: Run Streaming Script
         env:
           R1: ${{ secrets.R1 }}
-          KICK_KEY: ${{ secrets.KICK_KEY }}
         run: python main.py
 
       - name: Wait & Restart
@@ -219,7 +211,7 @@ jobs:
           PYTHON
 
           curl -X POST \
-            -H "Authorization: token ${{ github.token }}" \
+            -H "Authorization: token ${{ secrets.PAT_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/${{ github.repository }}/dispatches \
             -d '{"event_type": "restart-session"}'
