@@ -124,8 +124,10 @@ jobs:
                                   # تحويل النص لرد صوتي بواسطة Edge TTS (صوت معلق واقعي)
                                   subprocess.run(['edge-tts', '--text', reply_text, '--voice', 'en-US-ChristopherNeural', '--write-media', 'reply.mp3'])
                                   
-                                  # تشغيل الصوت داخل البث لكي يسمعه المشاهدون
-                                  subprocess.run(['paplay', '--device=Sink1', 'reply.mp3'])
+                                  # تشغيل الصوت داخل البث بواسطة ffmpeg بدلا من paplay لضمان عمل الـ mp3
+                                  if os.path.exists('reply.mp3'):
+                                      subprocess.run(['ffmpeg', '-loglevel', 'error', '-re', '-i', 'reply.mp3', '-f', 'pulse', 'Sink1'])
+                                      os.remove('reply.mp3') # تنظيف الملف بعد تشغيله
                               except Exception as e:
                                   print(f"Error generating AI reply or audio: {e}")
                                   
@@ -213,6 +215,7 @@ jobs:
 
                       ffmpeg_cmd = [
                           'ffmpeg', '-y',
+                          '-loglevel', 'error', # إخفاء السجل المزعج
                           '-thread_queue_size', '1024',
                           '-f', 'x11grab',
                           '-framerate', '60',
