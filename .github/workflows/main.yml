@@ -30,26 +30,32 @@ jobs:
       - name: System Setup
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb ffmpeg pulseaudio google-chrome-stable unclutter > /dev/null
+          sudo apt-get install -y -qq xvfb ffmpeg pulseaudio google-chrome-stable unclutter pulseaudio-utils > /dev/null
           pulseaudio -D --exit-idle-time=-1 --disallow-exit || true
           pactl load-module module-null-sink sink_name=Sink1
 
       - name: Python Setup
-        run: pip install selenium pyvirtualdisplay requests
+        run: pip install selenium pyvirtualdisplay requests g4f curl_cffi edge-tts
 
       - name: Create Python Script
         run: |
           cat << 'EOF' > main.py
-          import os, subprocess, time, requests, signal
+          import os, subprocess, time, requests, signal, csv
+          from io import StringIO
           from pyvirtualdisplay import Display
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
           from selenium.webdriver.common.by import By
           from multiprocessing import Process
+          from g4f.client import Client
 
           # إعدادات البث
           URL1_CONTROL = "https://meja.do.am/work/url1.txt"
           APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycby9TJczwYz7M-6900sKgp1-G8srLVVPIl-SLy-ft7Y1DdTAxs7XkzkmLGXXbBsQguKHLg/exec"
+          SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRr0IRkhXkovj2TyYUN3c_dPI11CPUZ0Dt05-QU2E0uW9ZCGDXKIffmPTz-NhKzuWAjoTeQf2cxTw58/pub?output=csv"
+
+          last_comment_index = -1
+          gpt_client = Client()
 
           def kill_all(signum, frame):
               os._exit(0)
@@ -69,14 +75,68 @@ jobs:
                   pass
               return None
 
+          def process_new_comments():
+              global last_comment_index
+              try:
+                  res = requests.get(SHEET_CSV_URL, timeout=10)
+                  res.encoding = 'utf-8'
+                  reader = csv.reader(StringIO(res.text))
+                  data = list(reader)
+                  
+                  current_len = len(data)
+                  # في البداية نتجاهل التعليقات القديمة ونبدأ من اللحظة الحالية
+                  if last_comment_index == -1:
+                      last_comment_index = current_len
+                      return
+                  
+                  if current_len > last_comment_index:
+                      for i in range(last_comment_index, current_len):
+                          row = data[i]
+                          if len(row) > 2:
+                              username = row[0].strip()
+                              comment = row[2].strip()
+                              
+                              if not username or not comment:
+                                  continue
+                              
+                              print(f"New comment from {username}: {comment}")
+                              
+                              # إعداد أمر توجيه GPT
+                              prompt = f"Act as a professional, respectful, and engaging gaming content creator streaming live. A viewer named '{username}' just said: '{comment}'. Respond ONLY in English, even if the comment is in another language. Keep the response very smart, respectful, conversational, and directly related to gaming. Keep it brief (1 to 3 sentences max)."
+                              
+                              try:
+                                  # طلب الرد من GPT المجاني
+                                  response = gpt_client.chat.completions.create(
+                                      model="gpt-3.5-turbo",
+                                      messages=[{"role": "user", "content": prompt}]
+                                  )
+                                  reply_text = response.choices[0].message.content.strip()
+                                  print(f"AI Reply: {reply_text}")
+                                  
+                                  # تحويل النص لرد صوتي بواسطة Edge TTS (صوت معلق واقعي)
+                                  subprocess.run(['edge-tts', '--text', reply_text, '--voice', 'en-US-ChristopherNeural', '--write-media', 'reply.mp3'])
+                                  
+                                  # تشغيل الصوت داخل البث
+                                  subprocess.run(['paplay', 'reply.mp3'])
+                              except Exception as e:
+                                  print(f"Error generating AI reply or audio: {e}")
+                                  
+                      last_comment_index = current_len
+              except Exception as e:
+                  print(f"Error fetching comments from sheet: {e}")
+
           def active_wait(driver, duration, control_url=None):
               start_time = time.time()
               last_url = driver.current_url
+              last_check_time = time.time()
+              
               while time.time() - start_time < duration:
                   try:
                       driver.find_element(By.TAG_NAME, 'body').click()
                   except:
                       pass
+                      
+                  # فحص التحكم في الرابط
                   if control_url:
                       new_url = get_url_from_file(control_url)
                       if new_url and new_url != last_url:
@@ -87,6 +147,12 @@ jobs:
                           driver.execute_cdp_cmd('Network.clearBrowserCookies', {})
                           driver.get(new_url)
                           last_url = new_url
+                          
+                  # فحص التعليقات الجديدة كل 10 ثوانٍ
+                  if time.time() - last_check_time > 10:
+                      process_new_comments()
+                      last_check_time = time.time()
+                      
                   time.sleep(3)
 
           def start_stream(youtube_key, kick_key, sink_name, control_url, apps_script_url, initial_delay=0):
