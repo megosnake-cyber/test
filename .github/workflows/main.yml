@@ -246,7 +246,7 @@ jobs:
           def start_stream(youtube_key, kick_key, sink_name, control_url, apps_script_url, initial_delay=0, is_first_stream=False):
               try:
                   print("Triggering Google Apps Script to create a new stream...")
-                  # استخدام الآلية القديمة المباشرة التي كانت تعمل بدون مشاكل
+                  # استخدام الآلية القديمة المباشرة التي كانت تعمل بدون مشاكل (بالحرف الواحد)
                   res = requests.get(apps_script_url, timeout=60, allow_redirects=True)
                   print("Apps Script triggered. Waiting for stream to be ready...")
                   
@@ -255,6 +255,7 @@ jobs:
                       raw_response = res.text.strip()
                       live_id = ""
                       
+                      # استخراج الـ ID بذكاء
                       match = re.search(r'(?<![a-zA-Z0-9_-])([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])', raw_response)
                       if match and not match.group(1).startswith("WIZ"):
                           live_id = match.group(1)
