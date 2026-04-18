@@ -1,5 +1,5 @@
 name: Perpetual Dual Stream
-aaaaaaaaaa
+
 on:
   workflow_dispatch:
   repository_dispatch:
@@ -12,6 +12,7 @@ concurrency:
 jobs:
   stream:
     runs-on: ubuntu-latest
+    timeout-minutes: 360 # تحديد أقصى مدة للوظيفة بـ 6 ساعات لضمان عمل جلسة الـ 5 ساعات براحة
     permissions:
       actions: write
       contents: write
@@ -40,16 +41,18 @@ jobs:
       - name: Create Python Script
         run: |
           cat << 'EOF' > main.py
-          import os, subprocess, time, requests, signal
+          import os, subprocess, time, requests, signal, random
           from pyvirtualdisplay import Display
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
           from selenium.webdriver.common.by import By
-          from multiprocessing import Process
 
           # إعدادات البث
           URL1_CONTROL = "https://meja.do.am/work/url1.txt"
-          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbwdVaCnCfcwFVnyY1wEOOWQawopiDTDEzfS2wcPMhWAG3VBHNJ-4AAwIKX80NjBWaMJ/exec"
+          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbyCHeVYLYsPGV-F95iiYStOXsgbYM1H92ZGEvveA7r3hq93A0AfiS1WQnnN8l3R7GLA/exec"
+          
+          # مدة الجلسة الكلية بالثواني (5 ساعات)
+          TOTAL_SESSION_TIME = 5 * 3600 
 
           def kill_all(signum, frame):
               os._exit(0)
@@ -107,6 +110,11 @@ jobs:
               disp.start()
               subprocess.Popen(['unclutter', '-idle', '0'])
               ffmpeg_proc = None
+              
+              # توليد مدة البث العشوائية: بين 1 ساعة و 40 دقيقة (6000 ثانية) و 2 ساعة و 15 دقيقة (8100 ثانية)
+              stream_duration = random.randint(6000, 8100)
+              print(f"🎯 Target Stream Duration: {stream_duration} seconds ({stream_duration/60:.2f} minutes).")
+
               try:
                   target_url = get_url_from_file(control_url)
                   if target_url:
@@ -129,7 +137,6 @@ jobs:
                       driver = webdriver.Chrome(options=opts)
                       time.sleep(8)
 
-                      # إعدادات روابط البث المزدوج (Dual Stream)
                       outputs = []
                       if youtube_key:
                           outputs.append(f"[f=flv:onfail=ignore]rtmp://a.rtmp.youtube.com/live2/{youtube_key}")
@@ -167,8 +174,11 @@ jobs:
                       ]
 
                       ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
-                      active_wait(driver, 3600, control_url)
+                      
+                      # الانتظار والمراقبة حتى انتهاء المدة العشوائية للبث
+                      active_wait(driver, stream_duration, control_url)
               finally:
+                  # إيقاف البث وإغلاق كل شيء يخص الفيديوهات
                   if ffmpeg_proc:
                       ffmpeg_proc.kill()
                   try:
@@ -176,12 +186,32 @@ jobs:
                   except:
                       pass
                   disp.stop()
+                  print("🛑 Stream ended successfully.")
 
           if __name__ == "__main__":
+              session_start = time.time()
+              
               R1 = os.environ.get('R1')
               KICK_KEY = os.environ.get('KICK_KEY')
+              
               if R1 or KICK_KEY:
                   start_stream(R1, KICK_KEY, "Sink1", URL1_CONTROL, APPS_SCRIPT_URL1, 0)
+              
+              # حساب الوقت المتبقي لإكمال 5 ساعات (لمنع إنشاء بثوث جديدة في نفس الجلسة)
+              elapsed = time.time() - session_start
+              remaining = TOTAL_SESSION_TIME - elapsed
+              
+              if remaining > 0:
+                  print(f"⏳ Waiting for {remaining:.0f} seconds to finish the 5-hour session limit...")
+                  while remaining > 0:
+                      # النوم لمدة 60 ثانية في كل دورة
+                      time.sleep(min(60, remaining))
+                      remaining -= 60
+                      # طباعة رسالة كل 10 دقائق لتجنب قيام جيت هب بإنهاء العملية بسبب الخمول
+                      if int(remaining) % 600 < 60 and remaining > 0:
+                          print(f"🔄 Session active... {int(remaining)} seconds left before restart.")
+              
+              print("✅ 5-hour session completed. Ready to trigger restart.")
           EOF
 
       - name: Run Streaming Script
@@ -193,20 +223,7 @@ jobs:
       - name: Wait & Restart
         if: always()
         run: |
-          python - <<'PYTHON'
-          import time, signal, sys
-          stop = False
-          def handler(signum, frame):
-              global stop
-              stop = True
-          signal.signal(signal.SIGTERM, handler)
-          signal.signal(signal.SIGINT, handler)
-          wait_seconds = 60
-          for _ in range(0, wait_seconds):
-              if stop: sys.exit(0)
-              time.sleep(1)
-          PYTHON
-
+          # إرسال طلب لإعادة بدء الجلسة لـ 5 ساعات جديدة
           curl -X POST \
             -H "Authorization: token ${{ github.token }}" \
             -H "Accept: application/vnd.github.v3+json" \
