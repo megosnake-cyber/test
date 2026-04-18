@@ -262,14 +262,13 @@ jobs:
               print(f"🎯 Target Stream Duration: {stream_duration} seconds ({stream_duration/60:.2f} minutes).")
 
               try:
-                  # إعداد متصفح اللعبة مع خصائص التخفي لتجاوز حماية جوجل
                   opts = Options()
                   opts.add_argument('--no-sandbox')
                   opts.add_argument('--disable-dev-shm-usage')
                   opts.add_argument('--autoplay-policy=no-user-gesture-required')
                   opts.add_argument('--disable-notifications')
                   opts.add_argument('--disable-infobars')
-                  opts.add_argument('--disable-blink-features=AutomationControlled') # الحل لمنع اكتشاف البوت
+                  opts.add_argument('--disable-blink-features=AutomationControlled')
                   opts.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
                   opts.add_experimental_option("excludeSwitches", ["enable-automation"])
                   opts.add_experimental_option('useAutomationExtension', False)
@@ -278,30 +277,31 @@ jobs:
 
                   driver = webdriver.Chrome(options=opts)
                   
-                  # === الحل الذكي: استخدام المتصفح الحقيقي للجدولة أولاً كأنك تفتحه بيدك ===
+                  # === الحل الذكي السري (CDP Hack): إزالة أثر البوت بالكامل قبل تحميل الصفحة ===
+                  driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                      "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+                  })
+                  
                   if is_first_stream:
-                      print(f"🔗 Opening Publishing Link inside Real Browser: {apps_script_url}")
-                      
-                      # إضافة متغير زمني صغير لإجبار السيرفر على جلب استجابة جديدة
-                      trigger_url = f"{apps_script_url}?v={int(time.time())}"
-                      driver.get(trigger_url)
+                      # فتح الرابط النقي تماماً بدون أي إضافات كما تفتحه أنت يدوياً
+                      print(f"🔗 Opening Publishing Link inside Stealth Browser: {apps_script_url}")
+                      driver.get(apps_script_url)
                       
                       print("⏳ Waiting 12 seconds for Apps Script to fully execute and schedule...")
                       time.sleep(12)
                       
                       try:
                           body_text = driver.find_element(By.TAG_NAME, 'body').text.strip()
-                          print(f"📄 Script Output: {body_text[:100]}")
+                          print(f"📄 Script Output Snippet: {body_text[:100]}")
                           
                           live_id = ""
-                          # استخراج الـ ID الصحيح وتجاهل أكواد جوجل الداخلية
+                          # استخراج الـ ID بدقة (11 حرف) مع استبعاد أكواد جوجل الداخلية تماماً
                           matches = re.findall(r'(?<![a-zA-Z0-9_-])([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])', body_text)
                           for m in matches:
-                              if m not in ["WIZ_global_", "DOCTYPE_html"] and not m.startswith("WIZ"):
+                              if m not in ["WIZ_global_", "DOCTYPE_html"] and not m.startswith("WIZ") and "script" not in m.lower():
                                   live_id = m
                                   break
                                   
-                          # إذا لم يجده بالبحث الذكي، نأخذ النص إذا كان قصيراً جداً
                           if not live_id and len(body_text) < 25 and "html" not in body_text.lower():
                               live_id = body_text.replace('"', '').replace("'", "")
                               
@@ -310,12 +310,11 @@ jobs:
                               requests.get(f"{WEB_APP_URL}?LIVE_ID={live_id}", timeout=10)
                               print("✅ LIVE_ID sent successfully.")
                           else:
-                              print("⚠️ Could not extract ID or blocked. Trying alternative fallback method...")
-                              subprocess.run(["curl", "-s", "-L", trigger_url])
+                              print("⚠️ Could not extract valid ID. Response might be blocked or empty.")
                       except Exception as e:
                           print(f"⚠️ Browser extraction error: {e}")
 
-                  # بعد الانتهاء من الجدولة، ننتقل مباشرة للعبة على نفس المتصفح المفتوح
+                  # بعد الانتهاء من الجدولة، ننتقل مباشرة للعبة على نفس المتصفح
                   target_url = get_url_from_file(control_url)
                   if target_url:
                       print(f"📺 Navigating to Game Content: {target_url}")
