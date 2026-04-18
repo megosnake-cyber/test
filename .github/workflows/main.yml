@@ -287,40 +287,41 @@ jobs:
                   trigger_url = f"{apps_script_url}{separator}nocache={int(time.time())}"
                   driver.get(trigger_url)
                   
-                  # 2. التقاط ID البث بنظام البحث الدقيق الصارم الجديد
+                  # 2. التقاط ID البث بنظام فحص ذكي وصارم جداً
                   if is_first_stream:
                       live_id = None
                       print("⏳ Waiting up to 30 seconds to capture LIVE_ID...")
-                      
                       for attempt in range(15):
                           time.sleep(2)
                           try:
                               body_text = driver.find_element(By.TAG_NAME, 'body').text.strip()
                               
-                              # طباعة استكشاف الأخطاء لرؤية النص الذي استلمه المتصفح حرفياً
-                              if attempt == 0 or attempt == 14:
-                                  print(f"📄 [DEBUG] Raw Page Text: '{body_text}'")
+                              # البحث الصارم 1: سحب آخر كلمة إذا كانت 11 حرفاً (لأنك تطبعه في نهاية الرسالة)
+                              last_word = body_text.split()[-1] if body_text.split() else ""
+                              if len(last_word) == 11 and re.match(r'^[a-zA-Z0-9_-]{11}$', last_word):
+                                  live_id = last_word
+                              else:
+                                  # البحث الصارم 2: استخراج كود مكون من 11 حرفاً بالضبط
+                                  potential_ids = re.findall(r'(?<![a-zA-Z0-9_-])[a-zA-Z0-9_-]{11}(?![a-zA-Z0-9_-])', body_text)
+                                  valid_ids = [pid for pid in potential_ids if not pid.isdigit() and "WIZ" not in pid]
+                                  if valid_ids:
+                                      live_id = valid_ids[-1] # نأخذ الأخير لضمان أنه الـ ID المطلوب
                               
-                              words = body_text.split()
-                              if words:
-                                  # جلب الكلمة الأخيرة فقط للتأكد أنه لا يلتقط أجزاء من روابط مخفية
-                                  last_word = words[-1].strip()
-                                  
-                                  # التحقق: هل طولها 11 حرف؟ وهل تحتوي فقط على (حروف وأرقام وشرطات) بدون نقط أو مسافات أو نقطتين (:)؟
-                                  if len(last_word) == 11 and re.match(r'^[a-zA-Z0-9_-]{11}$', last_word):
-                                      live_id = last_word
-                                      
                               if live_id:
-                                  print(f"📡 Captured TRUE LIVE_ID: {live_id} (Attempt {attempt+1})")
+                                  print(f"📡 Captured LIVE_ID: {live_id} (Attempt {attempt+1})")
                                   encoded_id = urllib.parse.quote(live_id)
-                                  sheet_response = requests.get(f"{WEB_APP_URL}?LIVE_ID={encoded_id}&nocache={int(time.time())}", timeout=30)
-                                  print(f"✅ LIVE_ID sent to Google Sheet. Sheet replied: {sheet_response.text[:50]}")
+                                  requests.get(f"{WEB_APP_URL}?LIVE_ID={encoded_id}&nocache={int(time.time())}", timeout=30)
+                                  print("✅ LIVE_ID sent to Google Sheet successfully.")
                                   break
                           except Exception as e:
                               pass
                               
                       if not live_id:
-                          print("⚠️ Could not extract valid ID after 30 seconds. Check [DEBUG] logs above to see if the ID was printed.")
+                          try:
+                              final_text = driver.find_element(By.TAG_NAME, 'body').text.strip()
+                              print(f"⚠️ Could not extract valid ID after 30 seconds. Response was: {final_text}")
+                          except:
+                              print("⚠️ Could not extract valid ID and could not read body.")
                   else:
                       print("⏳ Waiting 10 seconds for stream to be scheduled in browser...")
                       time.sleep(10)
