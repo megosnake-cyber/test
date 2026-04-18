@@ -47,10 +47,14 @@ jobs:
           from selenium.webdriver.chrome.options import Options
           from selenium.webdriver.common.by import By
 
-          # إعدادات البث
+          # إعدادات البث الأول
           URL1_CONTROL = "https://meja.do.am/work/url1.txt"
           APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbyCHeVYLYsPGV-F95iiYStOXsgbYM1H92ZGEvveA7r3hq93A0AfiS1WQnnN8l3R7GLA/exec"
           
+          # إعدادات البث الثاني
+          URL2_CONTROL = "https://meja.do.am/work/url2.txt"
+          APPS_SCRIPT_URL2 = "https://script.google.com/macros/s/AKfycbwdVaCnCfcwFVnyY1wEOOWQawopiDTDEzfS2wcPMhWAG3VBHNJ-4AAwIKX80NjBWaMJ/exec"
+
           # مدة الجلسة الكلية بالثواني (5 ساعات)
           TOTAL_SESSION_TIME = 5 * 3600 
 
@@ -94,7 +98,7 @@ jobs:
 
           def start_stream(youtube_key, kick_key, sink_name, control_url, apps_script_url, initial_delay=0):
               try:
-                  print("Triggering Google Apps Script to create a new stream...")
+                  print(f"Triggering Google Apps Script to create a new stream... ({apps_script_url})")
                   requests.get(apps_script_url, timeout=60, allow_redirects=True)
                   print("Apps Script triggered. Waiting for stream to be ready...")
                   time.sleep(10)
@@ -192,10 +196,25 @@ jobs:
               session_start = time.time()
               
               R1 = os.environ.get('R1')
+              R2 = os.environ.get('R2')
               KICK_KEY = os.environ.get('KICK_KEY')
               
+              # ----- البث الأول -----
               if R1 or KICK_KEY:
+                  print("▶️ Starting First Stream...")
                   start_stream(R1, KICK_KEY, "Sink1", URL1_CONTROL, APPS_SCRIPT_URL1, 0)
+              
+              # ----- فترة الانتظار العشوائية بين البثين -----
+              if R2:
+                  # الانتظار بين 10 إلى 20 دقيقة (600 إلى 1200 ثانية)
+                  wait_time = random.randint(600, 1200)
+                  print(f"⏳ Waiting for {wait_time} seconds ({wait_time/60:.2f} minutes) before starting the second stream...")
+                  time.sleep(wait_time)
+                  
+                  # ----- البث الثاني -----
+                  print("▶️ Starting Second Stream...")
+                  # نقوم بتمرير R2 و URL2_CONTROL و APPS_SCRIPT_URL2 (تم تمرير None كقيمة للـ Kick إلا إذا كنت ترغب بتشغيله مرة أخرى)
+                  start_stream(R2, None, "Sink1", URL2_CONTROL, APPS_SCRIPT_URL2, 0)
               
               # حساب الوقت المتبقي لإكمال 5 ساعات (لمنع إنشاء بثوث جديدة في نفس الجلسة)
               elapsed = time.time() - session_start
@@ -217,6 +236,7 @@ jobs:
       - name: Run Streaming Script
         env:
           R1: ${{ secrets.R1 }}
+          R2: ${{ secrets.R2 }}
           KICK_KEY: ${{ secrets.KICK_KEY }}
         run: python main.py
 
