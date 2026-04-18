@@ -36,7 +36,6 @@ jobs:
           pactl load-module module-null-sink sink_name=Sink1
 
       - name: Python Setup
-        # تم إضافة elevenlabs و pydub للمكتبات المطلوبة
         run: pip install selenium pyvirtualdisplay requests elevenlabs pydub
 
       - name: Create Python Script
@@ -69,11 +68,6 @@ jobs:
           WEB_APP_URL = "https://script.google.com/macros/s/AKfycby-1VgIowDBtMCaY4IOCriEG8YRIIQqcB9cXvf7KmbkfZEnG4iD1Hg66HieuQ86xFVH8g/exec"
           VOICE_ID = "CwhRBWXzGAHq8TQ4Fs17"
 
-          # User Agent لضمان قبول الطلبات من Google Apps Script
-          BROWSER_HEADERS = {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-          }
-
           def kill_all(signum, frame):
               os._exit(0)
 
@@ -82,7 +76,7 @@ jobs:
 
           def get_url_from_file(control_url):
               try:
-                  res = requests.get(f"{control_url}?t={int(time.time())}", headers=BROWSER_HEADERS, timeout=5)
+                  res = requests.get(f"{control_url}?t={int(time.time())}", timeout=5)
                   lines = [l.strip() for l in res.text.strip().split('\n') if l.strip()]
                   for line in lines:
                       parts = line.split()
@@ -118,7 +112,7 @@ jobs:
           def get_remote_api_keys():
               API_FILE_URL = "https://meja.do.am/aimp3/api.txt"
               try:
-                  response = requests.get(API_FILE_URL, headers=BROWSER_HEADERS)
+                  response = requests.get(API_FILE_URL)
                   if response.status_code == 200:
                       return [k.strip() for k in response.text.splitlines() if len(k.strip()) > 10]
               except:
@@ -214,7 +208,7 @@ jobs:
                       continue
 
                   try:
-                      response = requests.get(WEB_APP_URL, headers=BROWSER_HEADERS)
+                      response = requests.get(WEB_APP_URL)
                       data = response.json()
                       rows = data if isinstance(data, list) else data.get('data', [])
 
@@ -252,22 +246,23 @@ jobs:
           def start_stream(youtube_key, kick_key, sink_name, control_url, apps_script_url, initial_delay=0, is_first_stream=False):
               try:
                   print(f"Triggering Google Apps Script to create a new stream... ({apps_script_url})")
-                  # تم إضافة headers لضمان عدم حظر الطلب من طرف Google
-                  res = requests.get(apps_script_url, headers=BROWSER_HEADERS, timeout=60, allow_redirects=True)
+                  # تم إرجاع الكود لحالته القديمة بدون Headers لضمان نجاح الجدولة
+                  res = requests.get(apps_script_url, timeout=60, allow_redirects=True)
                   print("Apps Script triggered. Waiting for stream to be ready...")
                   
-                  # === إرسال LIVE_ID إلى جوجل شيت في البث الأول فقط ===
+                  # === التقاط وإرسال LIVE_ID إلى جوجل شيت ===
                   if is_first_stream:
-                      live_id = res.text.strip()
-                      if live_id and len(live_id) <= 20:
+                      live_id = res.text.strip().replace('"', '').replace("'", "")
+                      if live_id and "<html" not in live_id.lower() and len(live_id) <= 30:
                           print(f"📡 Captured LIVE_ID: {live_id}. Sending to Google Sheet...")
                           try:
-                              requests.get(f"{WEB_APP_URL}?LIVE_ID={live_id}", headers=BROWSER_HEADERS, timeout=10)
+                              requests.get(f"{WEB_APP_URL}?LIVE_ID={live_id}", timeout=30, allow_redirects=True)
                               print("✅ LIVE_ID sent to Google Sheet successfully.")
                           except Exception as e:
                               print(f"⚠️ Failed to send LIVE_ID to Sheet: {e}")
-                  # ===================================================
-
+                      else:
+                          print(f"⚠️ Could not extract valid ID. Response was: {live_id[:50]}")
+                  
                   time.sleep(10)
               except Exception as e:
                   print(f"Error triggering Apps Script: {e}")
@@ -365,10 +360,8 @@ jobs:
               finally:
                   if fan_process:
                       fan_process.terminate()
-                      print("🛑 Fan Noise stopped.")
                   if bot_process:
                       bot_process.terminate()
-                      print("🛑 AI Bot stopped.")
                   if ffmpeg_proc:
                       ffmpeg_proc.kill()
                   try:
@@ -382,7 +375,7 @@ jobs:
                   if is_first_stream:
                       print("🧹 First stream ended. Clearing LIVE_ID in Sheet...")
                       try:
-                          requests.get(f"{WEB_APP_URL}?LIVE_ID=", headers=BROWSER_HEADERS, timeout=10)
+                          requests.get(f"{WEB_APP_URL}?LIVE_ID=", timeout=30, allow_redirects=True)
                           print("✅ LIVE_ID cleared successfully.")
                       except Exception as e:
                           print(f"⚠️ Failed to clear LIVE_ID: {e}")
@@ -430,6 +423,20 @@ jobs:
       - name: Wait & Restart
         if: always()
         run: |
+          python - <<'PYTHON'
+          import time, signal, sys
+          stop = False
+          def handler(signum, frame):
+              global stop
+              stop = True
+          signal.signal(signal.SIGTERM, handler)
+          signal.signal(signal.SIGINT, handler)
+          wait_seconds = 60
+          for _ in range(0, wait_seconds):
+              if stop: sys.exit(0)
+              time.sleep(1)
+          PYTHON
+
           curl -X POST \
             -H "Authorization: token ${{ github.token }}" \
             -H "Accept: application/vnd.github.v3+json" \
