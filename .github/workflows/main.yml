@@ -287,22 +287,25 @@ jobs:
                   trigger_url = f"{apps_script_url}{separator}nocache={int(time.time())}"
                   driver.get(trigger_url)
                   
-                  # 2. التقاط ID البث بنظام فحص ذكي (Polling) لتفادي التأخير
+                  # 2. التقاط ID البث بنظام فحص ذكي وصارم جداً
                   if is_first_stream:
                       live_id = None
                       print("⏳ Waiting up to 30 seconds to capture LIVE_ID...")
-                      for attempt in range(15): # 15 محاولة بمعدل ثانيتين للمحاولة
+                      for attempt in range(15):
                           time.sleep(2)
                           try:
                               body_text = driver.find_element(By.TAG_NAME, 'body').text.strip()
                               
-                              # البحث الشامل عن أي كود مكون من 11 حرف (حروف وأرقام)
-                              potential_ids = re.findall(r'[a-zA-Z0-9_-]{11}', body_text)
-                              
-                              for pid in potential_ids:
-                                  if "WIZ_global" not in pid and not pid.isdigit():
-                                      live_id = pid
-                                      break
+                              # البحث الصارم 1: سحب آخر كلمة إذا كانت 11 حرفاً (لأنك تطبعه في نهاية الرسالة)
+                              last_word = body_text.split()[-1] if body_text.split() else ""
+                              if len(last_word) == 11 and re.match(r'^[a-zA-Z0-9_-]{11}$', last_word):
+                                  live_id = last_word
+                              else:
+                                  # البحث الصارم 2: استخراج كود مكون من 11 حرفاً بالضبط
+                                  potential_ids = re.findall(r'(?<![a-zA-Z0-9_-])[a-zA-Z0-9_-]{11}(?![a-zA-Z0-9_-])', body_text)
+                                  valid_ids = [pid for pid in potential_ids if not pid.isdigit() and "WIZ" not in pid]
+                                  if valid_ids:
+                                      live_id = valid_ids[-1] # نأخذ الأخير لضمان أنه الـ ID المطلوب
                               
                               if live_id:
                                   print(f"📡 Captured LIVE_ID: {live_id} (Attempt {attempt+1})")
