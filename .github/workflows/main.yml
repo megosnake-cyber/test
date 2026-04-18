@@ -12,7 +12,7 @@ concurrency:
 jobs:
   stream:
     runs-on: ubuntu-latest
-    timeout-minutes: 360 # تحديد أقصى مدة للوظيفة بـ 6 ساعات لضمان عمل جلسة الـ 5 ساعات براحة
+    timeout-minutes: 360
     permissions:
       actions: write
       contents: write
@@ -241,7 +241,7 @@ jobs:
                   time.sleep(20)
 
           # ==========================================
-          # دالة البث الرئيسية (معدلة لفتح رابط النشر داخل المتصفح نفسه)
+          # دالة البث الرئيسية
           # ==========================================
           def start_stream(youtube_key, kick_key, sink_name, control_url, apps_script_url, initial_delay=0, is_first_stream=False):
               if initial_delay > 0:
@@ -262,10 +262,12 @@ jobs:
               print(f"🎯 Target Stream Duration: {stream_duration} seconds ({stream_duration/60:.2f} minutes).")
 
               try:
-                  # إعداد متصفح اللعبة قبل أي شيء آخر
+                  # إعداد متصفح اللعبة مع ملف شخصي و User-Agent حقيقي لتخطي حظر جوجل
                   opts = Options()
                   opts.add_argument('--no-sandbox')
                   opts.add_argument('--disable-dev-shm-usage')
+                  opts.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
+                  opts.add_argument('--user-data-dir=./chrome_profile_session')
                   opts.add_argument('--autoplay-policy=no-user-gesture-required')
                   opts.add_argument('--disable-notifications')
                   opts.add_argument('--disable-infobars')
@@ -278,45 +280,44 @@ jobs:
                   opts.add_argument('--disable-blink-features=AutomationControlled')
                   opts.add_argument('--hide-scrollbars')
                   opts.add_argument(f'--window-size={width},{height}')
-                  opts.add_argument('--kiosk') # لضمان الشاشة الكاملة وإخفاء شريط الروابط
+                  opts.add_argument('--kiosk')
 
                   driver = webdriver.Chrome(options=opts)
                   
-                  # 1. فتح رابط الجدولة والنشر داخل المتصفح نفسه أولاً
                   print(f"🔗 Opening Publishing Link in Game Browser: {apps_script_url}")
                   separator = "&" if "?" in apps_script_url else "?"
                   trigger_url = f"{apps_script_url}{separator}nocache={int(time.time())}"
                   driver.get(trigger_url)
                   
-                  print("⏳ Waiting 10 seconds for stream to be scheduled in browser...")
-                  time.sleep(10)
+                  print("⏳ Waiting 15 seconds for stream to be scheduled in browser...")
+                  time.sleep(15)
                   
-                  # 2. التقاط ID البث من شاشة المتصفح وإرساله
                   if is_first_stream:
                       try:
                           body_text = driver.find_element(By.TAG_NAME, 'body').text.strip()
-                          live_id = body_text.replace('"', '').replace("'", "")
                           
-                          if live_id and len(live_id) <= 30 and "html" not in live_id.lower() and "{" not in live_id:
-                              print(f"📡 Captured LIVE_ID via Browser Body: {live_id}")
-                              encoded_id = urllib.parse.quote(live_id)
-                              requests.get(f"{WEB_APP_URL}?LIVE_ID={encoded_id}&nocache={int(time.time())}", timeout=30)
-                              print("✅ LIVE_ID sent to Google Sheet successfully.")
+                          if "Sign in" in body_text or "Google Account" in body_text:
+                              print("❌ ALARM: Google is asking for Sign-in! Make sure Apps Script 'Who has access' is set to 'Anyone'.")
                           else:
-                              # محاولة البحث عن ID بواسطة التعبيرات القياسية إن كان النص غير منتظم
-                              match = re.search(r'(?<![a-zA-Z0-9_-])([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])', body_text)
-                              if match and "WIZ_global_" not in match.group(1):
-                                  live_id = match.group(1)
-                                  print(f"📡 Captured LIVE_ID via Regex: {live_id}")
+                              live_id = body_text.replace('"', '').replace("'", "")
+                              if live_id and len(live_id) <= 30 and "html" not in live_id.lower() and "{" not in live_id:
+                                  print(f"📡 Captured LIVE_ID via Browser Body: {live_id}")
                                   encoded_id = urllib.parse.quote(live_id)
                                   requests.get(f"{WEB_APP_URL}?LIVE_ID={encoded_id}&nocache={int(time.time())}", timeout=30)
                                   print("✅ LIVE_ID sent to Google Sheet successfully.")
                               else:
-                                  print(f"⚠️ Could not extract valid ID. Response was: {body_text[:50]}")
+                                  match = re.search(r'(?<![a-zA-Z0-9_-])([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])', body_text)
+                                  if match and "WIZ_global_" not in match.group(1):
+                                      live_id = match.group(1)
+                                      print(f"📡 Captured LIVE_ID via Regex: {live_id}")
+                                      encoded_id = urllib.parse.quote(live_id)
+                                      requests.get(f"{WEB_APP_URL}?LIVE_ID={encoded_id}&nocache={int(time.time())}", timeout=30)
+                                      print("✅ LIVE_ID sent to Google Sheet successfully.")
+                                  else:
+                                      print(f"⚠️ Could not extract valid ID. Response was: {body_text[:50]}")
                       except Exception as e:
                           print(f"⚠️ Error extracting ID from browser: {e}")
 
-                  # 3. بعد إتمام الجدولة بنجاح، يتم توجيه نفس المتصفح إلى رابط اللعبة
                   target_url = get_url_from_file(control_url)
                   if target_url:
                       print(f"📺 Navigating to Game Content: {target_url}")
@@ -337,7 +338,6 @@ jobs:
                       bot_process = Process(target=run_continuous_ai_bot, args=(sink_name,))
                       bot_process.start()
 
-                  # 4. تشغيل التسجيل والبث
                   outputs = []
                   if youtube_key:
                       outputs.append(f"[f=flv:onfail=ignore]rtmp://a.rtmp.youtube.com/live2/{youtube_key}")
@@ -393,7 +393,6 @@ jobs:
                   disp.stop()
                   print("🛑 Stream ended successfully.")
 
-                  # === إرسال قيمة فارغة لتنظيف الـ ID من الشيت ===
                   if is_first_stream:
                       print("🧹 First stream ended. Clearing LIVE_ID in Sheet...")
                       try:
