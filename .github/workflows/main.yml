@@ -69,6 +69,11 @@ jobs:
           WEB_APP_URL = "https://script.google.com/macros/s/AKfycby-1VgIowDBtMCaY4IOCriEG8YRIIQqcB9cXvf7KmbkfZEnG4iD1Hg66HieuQ86xFVH8g/exec"
           VOICE_ID = "CwhRBWXzGAHq8TQ4Fs17"
 
+          # User Agent لضمان قبول الطلبات من Google Apps Script
+          BROWSER_HEADERS = {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+          }
+
           def kill_all(signum, frame):
               os._exit(0)
 
@@ -77,7 +82,7 @@ jobs:
 
           def get_url_from_file(control_url):
               try:
-                  res = requests.get(f"{control_url}?t={int(time.time())}", timeout=5)
+                  res = requests.get(f"{control_url}?t={int(time.time())}", headers=BROWSER_HEADERS, timeout=5)
                   lines = [l.strip() for l in res.text.strip().split('\n') if l.strip()]
                   for line in lines:
                       parts = line.split()
@@ -113,7 +118,7 @@ jobs:
           def get_remote_api_keys():
               API_FILE_URL = "https://meja.do.am/aimp3/api.txt"
               try:
-                  response = requests.get(API_FILE_URL)
+                  response = requests.get(API_FILE_URL, headers=BROWSER_HEADERS)
                   if response.status_code == 200:
                       return [k.strip() for k in response.text.splitlines() if len(k.strip()) > 10]
               except:
@@ -209,7 +214,7 @@ jobs:
                       continue
 
                   try:
-                      response = requests.get(WEB_APP_URL)
+                      response = requests.get(WEB_APP_URL, headers=BROWSER_HEADERS)
                       data = response.json()
                       rows = data if isinstance(data, list) else data.get('data', [])
 
@@ -247,17 +252,17 @@ jobs:
           def start_stream(youtube_key, kick_key, sink_name, control_url, apps_script_url, initial_delay=0, is_first_stream=False):
               try:
                   print(f"Triggering Google Apps Script to create a new stream... ({apps_script_url})")
-                  res = requests.get(apps_script_url, timeout=60, allow_redirects=True)
+                  # تم إضافة headers لضمان عدم حظر الطلب من طرف Google
+                  res = requests.get(apps_script_url, headers=BROWSER_HEADERS, timeout=60, allow_redirects=True)
                   print("Apps Script triggered. Waiting for stream to be ready...")
                   
                   # === إرسال LIVE_ID إلى جوجل شيت في البث الأول فقط ===
                   if is_first_stream:
                       live_id = res.text.strip()
-                      # نتحقق أن الرد هو ID حقيقي وليس رسالة خطأ طويلة
                       if live_id and len(live_id) <= 20:
                           print(f"📡 Captured LIVE_ID: {live_id}. Sending to Google Sheet...")
                           try:
-                              requests.get(f"{WEB_APP_URL}?LIVE_ID={live_id}", timeout=10)
+                              requests.get(f"{WEB_APP_URL}?LIVE_ID={live_id}", headers=BROWSER_HEADERS, timeout=10)
                               print("✅ LIVE_ID sent to Google Sheet successfully.")
                           except Exception as e:
                               print(f"⚠️ Failed to send LIVE_ID to Sheet: {e}")
@@ -373,6 +378,15 @@ jobs:
                   disp.stop()
                   print("🛑 Stream ended successfully.")
 
+                  # === إرسال قيمة فارغة لتنظيف الـ ID من الشيت بعد انتهاء البث الأول ===
+                  if is_first_stream:
+                      print("🧹 First stream ended. Clearing LIVE_ID in Sheet...")
+                      try:
+                          requests.get(f"{WEB_APP_URL}?LIVE_ID=", headers=BROWSER_HEADERS, timeout=10)
+                          print("✅ LIVE_ID cleared successfully.")
+                      except Exception as e:
+                          print(f"⚠️ Failed to clear LIVE_ID: {e}")
+
           if __name__ == "__main__":
               session_start = time.time()
               
@@ -382,7 +396,6 @@ jobs:
               
               if R1 or KICK_KEY:
                   print("▶️ Starting First Stream...")
-                  # is_first_stream=True مخصصة فقط للبث الأول ليعمل التعليق والمروحة وإرسال הـ LIVE_ID
                   start_stream(R1, KICK_KEY, "Sink1", URL1_CONTROL, APPS_SCRIPT_URL1, 0, is_first_stream=True)
               
               if R2:
