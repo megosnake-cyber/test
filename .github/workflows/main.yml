@@ -64,7 +64,7 @@ jobs:
           TOTAL_SESSION_TIME = 5 * 3600 
 
           # ==========================================
-          # إعدادات المعلق الصوتي الذكي
+          # إعدادات المعلق الصوتي الذكي والشيت
           # ==========================================
           WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyq6hs0txpgIqZzyB8ySyo2RhMPT0sumCJgH9UMQYN11NHW03BEtE4kjzEGLHZt1RRq2Q/exec"
           VOICE_ID = "CwhRBWXzGAHq8TQ4Fs17"
@@ -218,8 +218,6 @@ jobs:
                               try:
                                   username = str(row[0]).strip()
                                   comment = str(row[2]).strip()
-                                  
-                                  # التمييز بالاسم والتعليق لتجنب التكرار
                                   unique_id = f"{username}_{comment}"
 
                                   if unique_id in processed_comments:
@@ -234,7 +232,6 @@ jobs:
                                   
                                   if is_success:
                                       make_bad_mic_effect(filename)
-                                      # تشغيل الصوت عبر سيرفر الصوت الوهمي
                                       subprocess.run(['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', filename])
                                       processed_comments.add(unique_id)
                                   
@@ -242,8 +239,6 @@ jobs:
                                   continue
                   except Exception as e:
                       pass
-                  
-                  # الانتظار 20 ثانية قبل فحص الشيت مرة أخرى لتجنب الحظر
                   time.sleep(20)
 
           # ==========================================
@@ -252,8 +247,22 @@ jobs:
           def start_stream(youtube_key, kick_key, sink_name, control_url, apps_script_url, initial_delay=0, is_first_stream=False):
               try:
                   print(f"Triggering Google Apps Script to create a new stream... ({apps_script_url})")
-                  requests.get(apps_script_url, timeout=60, allow_redirects=True)
+                  res = requests.get(apps_script_url, timeout=60, allow_redirects=True)
                   print("Apps Script triggered. Waiting for stream to be ready...")
+                  
+                  # === إرسال LIVE_ID إلى جوجل شيت في البث الأول فقط ===
+                  if is_first_stream:
+                      live_id = res.text.strip()
+                      # نتحقق أن الرد هو ID حقيقي وليس رسالة خطأ طويلة
+                      if live_id and len(live_id) <= 20:
+                          print(f"📡 Captured LIVE_ID: {live_id}. Sending to Google Sheet...")
+                          try:
+                              requests.get(f"{WEB_APP_URL}?LIVE_ID={live_id}", timeout=10)
+                              print("✅ LIVE_ID sent to Google Sheet successfully.")
+                          except Exception as e:
+                              print(f"⚠️ Failed to send LIVE_ID to Sheet: {e}")
+                  # ===================================================
+
                   time.sleep(10)
               except Exception as e:
                   print(f"Error triggering Apps Script: {e}")
@@ -274,9 +283,7 @@ jobs:
               stream_duration = random.randint(6000, 8100)
               print(f"🎯 Target Stream Duration: {stream_duration} seconds ({stream_duration/60:.2f} minutes).")
 
-              # تفعيل المعلق الصوتي وصوت المروحة الواقعي إذا كان هذا هو البث الأول
               if is_first_stream:
-                  # 1. تشغيل صوت المروحة (Brown Noise) بترددات متغيرة تحاكي الهواء الواقعي في الخلفية (صوت خافت جداً)
                   fan_cmd = [
                       'ffplay', '-f', 'lavfi', 
                       '-i', 'anoisesrc=a=0.015:c=brown, tremolo=f=0.05:d=0.4', 
@@ -287,7 +294,6 @@ jobs:
                   fan_process = subprocess.Popen(fan_cmd, env=fan_env)
                   print("🌬️ Realistic Background Fan Noise started.")
 
-                  # 2. تشغيل المعلق الصوتي الذكي في الخلفية
                   bot_process = Process(target=run_continuous_ai_bot, args=(sink_name,))
                   bot_process.start()
 
@@ -350,11 +356,8 @@ jobs:
                       ]
 
                       ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
-                      
-                      # الانتظار والمراقبة حتى انتهاء المدة العشوائية للبث
                       active_wait(driver, stream_duration, control_url)
               finally:
-                  # إغلاق كل شيء يخص الفيديوهات والصوت عند انتهاء البث
                   if fan_process:
                       fan_process.terminate()
                       print("🛑 Fan Noise stopped.")
@@ -377,24 +380,19 @@ jobs:
               R2 = os.environ.get('R2')
               KICK_KEY = os.environ.get('KICK_KEY')
               
-              # ----- البث الأول -----
               if R1 or KICK_KEY:
                   print("▶️ Starting First Stream...")
-                  # تم تمرير is_first_stream=True هنا فقط لتشغيل الصوتيات الإضافية
+                  # is_first_stream=True مخصصة فقط للبث الأول ليعمل التعليق والمروحة وإرسال הـ LIVE_ID
                   start_stream(R1, KICK_KEY, "Sink1", URL1_CONTROL, APPS_SCRIPT_URL1, 0, is_first_stream=True)
               
-              # ----- فترة الانتظار العشوائية بين البثين -----
               if R2:
                   wait_time = random.randint(600, 1200)
                   print(f"⏳ Waiting for {wait_time} seconds ({wait_time/60:.2f} minutes) before starting the second stream...")
                   time.sleep(wait_time)
                   
-                  # ----- البث الثاني -----
                   print("▶️ Starting Second Stream...")
-                  # هنا is_first_stream=False فلا يعمل الذكاء الاصطناعي والمروحة
                   start_stream(R2, None, "Sink1", URL2_CONTROL, APPS_SCRIPT_URL2, 0, is_first_stream=False)
               
-              # حساب الوقت المتبقي لإكمال 5 ساعات
               elapsed = time.time() - session_start
               remaining = TOTAL_SESSION_TIME - elapsed
               
