@@ -244,54 +244,6 @@ jobs:
           # دالة البث الرئيسية
           # ==========================================
           def start_stream(youtube_key, kick_key, sink_name, control_url, apps_script_url, initial_delay=0, is_first_stream=False):
-              try:
-                  print(f"Triggering Google Apps Script to create a new stream... ({apps_script_url})")
-                  
-                  # === الحل المباشر والآمن: محاكاة الضغطة اليدوية ===
-                  session = requests.Session()
-                  session.headers.update({
-                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-                      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                      "Accept-Language": "en-US,en;q=0.5",
-                      "Upgrade-Insecure-Requests": "1"
-                  })
-                  
-                  # نستدعي الرابط كما هو بدون إضافة متغيرات قد تعطل السكربت
-                  res = session.get(apps_script_url, timeout=120, allow_redirects=True)
-                  print("Apps Script triggered. Waiting for stream to be ready...")
-                  
-                  if is_first_stream:
-                      raw_response = res.text.strip()
-                      live_id = ""
-                      
-                      # استخراج ID بذكاء وتجاهل أكواد جوجل الداخلية
-                      matches = re.findall(r'(?<![a-zA-Z0-9_-])([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])', raw_response)
-                      for m in matches:
-                          if m not in ["WIZ_global_", "DOCTYPE_html"] and not m.startswith("WIZ"):
-                              live_id = m
-                              break
-                              
-                      if not live_id:
-                          clean_text = raw_response.replace('"', '').replace("'", "").strip()
-                          if clean_text and "<html" not in clean_text.lower() and len(clean_text) <= 30:
-                              live_id = clean_text
-
-                      if live_id and "Sign in" not in live_id and "Google Account" not in live_id:
-                          print(f"📡 Captured LIVE_ID: {live_id}. Sending to Google Sheet...")
-                          try:
-                              encoded_id = urllib.parse.quote(live_id)
-                              sheet_url = f"{WEB_APP_URL}?LIVE_ID={encoded_id}&nocache={int(time.time())}"
-                              session.get(sheet_url, timeout=60, allow_redirects=True)
-                              print("✅ LIVE_ID sent to Google Sheet successfully.")
-                          except Exception as e:
-                              print(f"⚠️ Failed to send LIVE_ID to Sheet: {e}")
-                      else:
-                          print(f"⚠️ Could not extract valid ID or hit a block. Response was: {raw_response[:100]}")
-                  
-                  time.sleep(10)
-              except Exception as e:
-                  print(f"Error triggering Apps Script: {e}")
-
               if initial_delay > 0:
                   time.sleep(initial_delay)
               
@@ -304,84 +256,127 @@ jobs:
               ffmpeg_proc = None
               bot_process = None
               fan_process = None
+              driver = None
               
               stream_duration = random.randint(6000, 8100)
               print(f"🎯 Target Stream Duration: {stream_duration} seconds ({stream_duration/60:.2f} minutes).")
 
-              if is_first_stream:
-                  fan_cmd = [
-                      'ffplay', '-f', 'lavfi', 
-                      '-i', 'anoisesrc=a=0.015:c=brown, tremolo=f=0.05:d=0.4', 
-                      '-nodisp', '-loop', '0', '-loglevel', 'quiet'
-                  ]
-                  fan_env = os.environ.copy()
-                  fan_env['PULSE_SINK'] = sink_name
-                  fan_process = subprocess.Popen(fan_cmd, env=fan_env)
-                  print("🌬️ Realistic Background Fan Noise started.")
-
-                  bot_process = Process(target=run_continuous_ai_bot, args=(sink_name,))
-                  bot_process.start()
-
               try:
+                  # إعداد متصفح اللعبة مع خصائص التخفي لتجاوز حماية جوجل
+                  opts = Options()
+                  opts.add_argument('--no-sandbox')
+                  opts.add_argument('--disable-dev-shm-usage')
+                  opts.add_argument('--autoplay-policy=no-user-gesture-required')
+                  opts.add_argument('--disable-notifications')
+                  opts.add_argument('--disable-infobars')
+                  opts.add_argument('--disable-blink-features=AutomationControlled') # الحل لمنع اكتشاف البوت
+                  opts.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
+                  opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+                  opts.add_experimental_option('useAutomationExtension', False)
+                  opts.add_argument(f'--window-size={width},{height}')
+                  opts.add_argument('--kiosk')
+
+                  driver = webdriver.Chrome(options=opts)
+                  
+                  # === الحل الذكي: استخدام المتصفح الحقيقي للجدولة أولاً كأنك تفتحه بيدك ===
+                  if is_first_stream:
+                      print(f"🔗 Opening Publishing Link inside Real Browser: {apps_script_url}")
+                      
+                      # إضافة متغير زمني صغير لإجبار السيرفر على جلب استجابة جديدة
+                      trigger_url = f"{apps_script_url}?v={int(time.time())}"
+                      driver.get(trigger_url)
+                      
+                      print("⏳ Waiting 12 seconds for Apps Script to fully execute and schedule...")
+                      time.sleep(12)
+                      
+                      try:
+                          body_text = driver.find_element(By.TAG_NAME, 'body').text.strip()
+                          print(f"📄 Script Output: {body_text[:100]}")
+                          
+                          live_id = ""
+                          # استخراج الـ ID الصحيح وتجاهل أكواد جوجل الداخلية
+                          matches = re.findall(r'(?<![a-zA-Z0-9_-])([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])', body_text)
+                          for m in matches:
+                              if m not in ["WIZ_global_", "DOCTYPE_html"] and not m.startswith("WIZ"):
+                                  live_id = m
+                                  break
+                                  
+                          # إذا لم يجده بالبحث الذكي، نأخذ النص إذا كان قصيراً جداً
+                          if not live_id and len(body_text) < 25 and "html" not in body_text.lower():
+                              live_id = body_text.replace('"', '').replace("'", "")
+                              
+                          if live_id and "Sign in" not in live_id and "Google" not in live_id:
+                              print(f"📡 Captured LIVE_ID: {live_id}. Sending to Google Sheet...")
+                              requests.get(f"{WEB_APP_URL}?LIVE_ID={live_id}", timeout=10)
+                              print("✅ LIVE_ID sent successfully.")
+                          else:
+                              print("⚠️ Could not extract ID or blocked. Trying alternative fallback method...")
+                              subprocess.run(["curl", "-s", "-L", trigger_url])
+                      except Exception as e:
+                          print(f"⚠️ Browser extraction error: {e}")
+
+                  # بعد الانتهاء من الجدولة، ننتقل مباشرة للعبة على نفس المتصفح المفتوح
                   target_url = get_url_from_file(control_url)
                   if target_url:
-                      opts = Options()
-                      opts.add_argument('--no-sandbox')
-                      opts.add_argument('--disable-dev-shm-usage')
-                      opts.add_argument('--autoplay-policy=no-user-gesture-required')
-                      opts.add_argument('--disable-notifications')
-                      opts.add_argument('--disable-infobars')
-                      opts.add_argument('--disable-extensions')
-                      opts.add_argument('--disable-popup-blocking')
-                      opts.add_argument('--disable-features=TranslateUI')
-                      opts.add_argument('--disable-gpu')
-                      opts.add_experimental_option("excludeSwitches", ["enable-automation"])
-                      opts.add_experimental_option('useAutomationExtension', False)
-                      opts.add_argument('--disable-blink-features=AutomationControlled')
-                      opts.add_argument('--hide-scrollbars')
-                      opts.add_argument(f'--app={target_url}')
-
-                      driver = webdriver.Chrome(options=opts)
+                      print(f"📺 Navigating to Game Content: {target_url}")
+                      driver.get(target_url)
                       time.sleep(8)
 
-                      outputs = []
-                      if youtube_key:
-                          outputs.append(f"[f=flv:onfail=ignore]rtmp://a.rtmp.youtube.com/live2/{youtube_key}")
-                      if kick_key:
-                          outputs.append(f"[f=flv:onfail=ignore]rtmps://fa723fc1b171.global-contribute.live-video.net/app/{kick_key}")
-                      
-                      tee_output = "|".join(outputs)
-
-                      ffmpeg_cmd = [
-                          'ffmpeg', '-y',
-                          '-thread_queue_size', '1024',
-                          '-f', 'x11grab',
-                          '-framerate', '60',
-                          '-s', f'{width}x{height}',
-                          '-i', f":{disp.display}",
-                          '-f', 'pulse',
-                          '-i', f"{sink_name}.monitor",
-                          '-c:v', 'libx264',
-                          '-preset', 'ultrafast',
-                          '-tune', 'zerolatency',
-                          '-b:v', '4000k',
-                          '-maxrate', '4000k',
-                          '-bufsize', '8000k',
-                          '-r', '60',
-                          '-g', '120',
-                          '-keyint_min', '120',
-                          '-sc_threshold', '0',
-                          '-pix_fmt', 'yuv420p',
-                          '-c:a', 'aac',
-                          '-b:a', '128k',
-                          '-map', '0:v',
-                          '-map', '1:a',
-                          '-f', 'tee',
-                          tee_output
+                  if is_first_stream:
+                      fan_cmd = [
+                          'ffplay', '-f', 'lavfi', 
+                          '-i', 'anoisesrc=a=0.015:c=brown, tremolo=f=0.05:d=0.4', 
+                          '-nodisp', '-loop', '0', '-loglevel', 'quiet'
                       ]
+                      fan_env = os.environ.copy()
+                      fan_env['PULSE_SINK'] = sink_name
+                      fan_process = subprocess.Popen(fan_cmd, env=fan_env)
+                      print("🌬️ Realistic Background Fan Noise started.")
 
-                      ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
-                      active_wait(driver, stream_duration, control_url)
+                      bot_process = Process(target=run_continuous_ai_bot, args=(sink_name,))
+                      bot_process.start()
+
+                  outputs = []
+                  if youtube_key:
+                      outputs.append(f"[f=flv:onfail=ignore]rtmp://a.rtmp.youtube.com/live2/{youtube_key}")
+                  if kick_key:
+                      outputs.append(f"[f=flv:onfail=ignore]rtmps://fa723fc1b171.global-contribute.live-video.net/app/{kick_key}")
+                  
+                  tee_output = "|".join(outputs)
+
+                  ffmpeg_cmd = [
+                      'ffmpeg', '-y',
+                      '-thread_queue_size', '1024',
+                      '-f', 'x11grab',
+                      '-framerate', '60',
+                      '-s', f'{width}x{height}',
+                      '-i', f":{disp.display}",
+                      '-f', 'pulse',
+                      '-i', f"{sink_name}.monitor",
+                      '-c:v', 'libx264',
+                      '-preset', 'ultrafast',
+                      '-tune', 'zerolatency',
+                      '-b:v', '4000k',
+                      '-maxrate', '4000k',
+                      '-bufsize', '8000k',
+                      '-r', '60',
+                      '-g', '120',
+                      '-keyint_min', '120',
+                      '-sc_threshold', '0',
+                      '-pix_fmt', 'yuv420p',
+                      '-c:a', 'aac',
+                      '-b:a', '128k',
+                      '-map', '0:v',
+                      '-map', '1:a',
+                      '-f', 'tee',
+                      tee_output
+                  ]
+
+                  ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
+                  active_wait(driver, stream_duration, control_url)
+
+              except Exception as e:
+                  print(f"Stream encountered an error: {e}")
               finally:
                   if fan_process:
                       fan_process.terminate()
@@ -390,7 +385,7 @@ jobs:
                   if ffmpeg_proc:
                       ffmpeg_proc.kill()
                   try:
-                      driver.quit()
+                      if driver: driver.quit()
                   except:
                       pass
                   disp.stop()
