@@ -55,7 +55,7 @@ jobs:
           # إعدادات البث
           # ==========================================
           URL1_CONTROL = "https://meja.do.am/work/url1.txt"
-          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbx1TPonBGDBpoz_jSlbCEZp6QtSFxZYqJqXKqTnqwl5awR3hbICc71fzvCotDQroib0/exec"
+          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbxktpGQjfoRpKjszasSI6hs7k8xCQ4gP_1p7-BDlHGorBTolQmQActMDayp4aMPLUJM/exec"
           
           URL2_CONTROL = "https://meja.do.am/work/url2.txt"
           APPS_SCRIPT_URL2 = "https://script.google.com/macros/s/AKfycbwdVaCnCfcwFVnyY1wEOOWQawopiDTDEzfS2wcPMhWAG3VBHNJ-4AAwIKX80NjBWaMJ/exec"
