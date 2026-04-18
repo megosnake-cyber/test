@@ -12,7 +12,7 @@ concurrency:
 jobs:
   stream:
     runs-on: ubuntu-latest
-    timeout-minutes: 360 # تحديد أقصى مدة للوظيفة بـ 6 ساعات لضمان عمل جلسة الـ 5 ساعات براحة
+    timeout-minutes: 360
     permissions:
       actions: write
       contents: write
@@ -241,7 +241,7 @@ jobs:
                   time.sleep(20)
 
           # ==========================================
-          # دالة البث الرئيسية (معدلة لفتح رابط النشر داخل المتصفح نفسه)
+          # دالة البث الرئيسية 
           # ==========================================
           def start_stream(youtube_key, kick_key, sink_name, control_url, apps_script_url, initial_delay=0, is_first_stream=False):
               if initial_delay > 0:
@@ -262,7 +262,6 @@ jobs:
               print(f"🎯 Target Stream Duration: {stream_duration} seconds ({stream_duration/60:.2f} minutes).")
 
               try:
-                  # إعداد متصفح اللعبة قبل أي شيء آخر
                   opts = Options()
                   opts.add_argument('--no-sandbox')
                   opts.add_argument('--disable-dev-shm-usage')
@@ -278,7 +277,7 @@ jobs:
                   opts.add_argument('--disable-blink-features=AutomationControlled')
                   opts.add_argument('--hide-scrollbars')
                   opts.add_argument(f'--window-size={width},{height}')
-                  opts.add_argument('--kiosk') # لضمان الشاشة الكاملة وإخفاء شريط الروابط
+                  opts.add_argument('--kiosk')
 
                   driver = webdriver.Chrome(options=opts)
                   
@@ -288,35 +287,43 @@ jobs:
                   trigger_url = f"{apps_script_url}{separator}nocache={int(time.time())}"
                   driver.get(trigger_url)
                   
-                  print("⏳ Waiting 10 seconds for stream to be scheduled in browser...")
-                  time.sleep(10)
-                  
-                  # 2. التقاط ID البث من شاشة المتصفح وإرساله
+                  # 2. التقاط ID البث بنظام فحص ذكي (Polling) لتفادي التأخير
                   if is_first_stream:
-                      try:
-                          body_text = driver.find_element(By.TAG_NAME, 'body').text.strip()
-                          live_id = body_text.replace('"', '').replace("'", "")
-                          
-                          if live_id and len(live_id) <= 30 and "html" not in live_id.lower() and "{" not in live_id:
-                              print(f"📡 Captured LIVE_ID via Browser Body: {live_id}")
-                              encoded_id = urllib.parse.quote(live_id)
-                              requests.get(f"{WEB_APP_URL}?LIVE_ID={encoded_id}&nocache={int(time.time())}", timeout=30)
-                              print("✅ LIVE_ID sent to Google Sheet successfully.")
-                          else:
-                              # محاولة البحث عن ID بواسطة التعبيرات القياسية إن كان النص غير منتظم
-                              match = re.search(r'(?<![a-zA-Z0-9_-])([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])', body_text)
-                              if match and "WIZ_global_" not in match.group(1):
-                                  live_id = match.group(1)
-                                  print(f"📡 Captured LIVE_ID via Regex: {live_id}")
+                      live_id = None
+                      print("⏳ Waiting up to 30 seconds to capture LIVE_ID...")
+                      for attempt in range(15): # 15 محاولة بمعدل ثانيتين للمحاولة
+                          time.sleep(2)
+                          try:
+                              body_text = driver.find_element(By.TAG_NAME, 'body').text.strip()
+                              
+                              # البحث الشامل عن أي كود مكون من 11 حرف (حروف وأرقام)
+                              potential_ids = re.findall(r'[a-zA-Z0-9_-]{11}', body_text)
+                              
+                              for pid in potential_ids:
+                                  if "WIZ_global" not in pid and not pid.isdigit():
+                                      live_id = pid
+                                      break
+                              
+                              if live_id:
+                                  print(f"📡 Captured LIVE_ID: {live_id} (Attempt {attempt+1})")
                                   encoded_id = urllib.parse.quote(live_id)
                                   requests.get(f"{WEB_APP_URL}?LIVE_ID={encoded_id}&nocache={int(time.time())}", timeout=30)
                                   print("✅ LIVE_ID sent to Google Sheet successfully.")
-                              else:
-                                  print(f"⚠️ Could not extract valid ID. Response was: {body_text[:50]}")
-                      except Exception as e:
-                          print(f"⚠️ Error extracting ID from browser: {e}")
-
-                  # 3. بعد إتمام الجدولة بنجاح، يتم توجيه نفس المتصفح إلى رابط اللعبة
+                                  break
+                          except Exception as e:
+                              pass
+                              
+                      if not live_id:
+                          try:
+                              final_text = driver.find_element(By.TAG_NAME, 'body').text.strip()
+                              print(f"⚠️ Could not extract valid ID after 30 seconds. Response was: {final_text}")
+                          except:
+                              print("⚠️ Could not extract valid ID and could not read body.")
+                  else:
+                      print("⏳ Waiting 10 seconds for stream to be scheduled in browser...")
+                      time.sleep(10)
+                  
+                  # 3. توجيه نفس المتصفح إلى رابط اللعبة
                   target_url = get_url_from_file(control_url)
                   if target_url:
                       print(f"📺 Navigating to Game Content: {target_url}")
@@ -393,7 +400,6 @@ jobs:
                   disp.stop()
                   print("🛑 Stream ended successfully.")
 
-                  # === إرسال قيمة فارغة لتنظيف الـ ID من الشيت ===
                   if is_first_stream:
                       print("🧹 First stream ended. Clearing LIVE_ID in Sheet...")
                       try:
