@@ -41,7 +41,7 @@ jobs:
       - name: Create Python Script
         run: |
           cat << 'EOF' > main.py
-          import os, subprocess, time, requests, signal, random, urllib.parse, re
+          import os, subprocess, time, requests, signal, random, urllib.parse
           from multiprocessing import Process
           from pyvirtualdisplay import Display
           from selenium import webdriver
@@ -178,7 +178,7 @@ jobs:
                   time.sleep(20)
 
           # ==========================================
-          # دالة البث الرئيسية (الحل العبقري)
+          # دالة البث الرئيسية
           # ==========================================
           def start_stream(youtube_key, kick_key, sink_name, control_url, apps_script_url, initial_delay=0, is_first_stream=False):
               width, height = 720, 1280
@@ -198,23 +198,25 @@ jobs:
 
               live_id = ""
               try:
-                  # === الحل العبقري: فتح رابط الجدولة داخل السيلينيوم لضمان التفعيل ===
                   print(f"🔗 Opening Publishing Link in Browser: {apps_script_url}")
                   driver.get(f"{apps_script_url}?nocache={int(time.time())}")
                   time.sleep(10) # انتظار الجدولة
                   
                   if is_first_stream:
-                      page_source = driver.page_source
-                      # استخراج الـ ID باستخدام Regex من محتوى الصفحة
-                      match = re.search(r'([a-zA-Z0-9_-]{11})', page_source)
-                      if match:
-                          live_id = match.group(1)
-                          print(f"📡 Captured LIVE_ID via Browser: {live_id}")
-                          requests.get(f"{WEB_APP_URL}?LIVE_ID={live_id}", timeout=30)
-                      else:
-                          print("⚠️ Could not find ID on page, sending raw text...")
-                          clean_text = driver.find_element(By.TAG_NAME, 'body').text.strip()
-                          requests.get(f"{WEB_APP_URL}?LIVE_ID={clean_text[:20]}", timeout=30)
+                      try:
+                          # استخراج النص الظاهر على الشاشة فقط لنتجنب WIZ_global وغيرها من أكواد جوجل المخفية
+                          body_text = driver.find_element(By.TAG_NAME, 'body').text.strip()
+                          live_id = body_text.replace('"', '').replace("'", "")
+                          
+                          if live_id and len(live_id) <= 30 and "html" not in live_id.lower():
+                              print(f"📡 Captured LIVE_ID via Browser Body: {live_id}")
+                              encoded_id = urllib.parse.quote(live_id)
+                              requests.get(f"{WEB_APP_URL}?LIVE_ID={encoded_id}&nocache={int(time.time())}", timeout=30)
+                              print("✅ LIVE_ID sent to Google Sheet successfully.")
+                          else:
+                              print(f"⚠️ Extracted text invalid for ID: {live_id[:30]}")
+                      except Exception as e:
+                          print(f"⚠️ Error extracting ID from body: {e}")
               except Exception as e:
                   print(f"⚠️ Scheduling Error: {e}")
 
@@ -242,10 +244,13 @@ jobs:
                   if youtube_key: outputs.append(f"[f=flv:onfail=ignore]rtmp://a.rtmp.youtube.com/live2/{youtube_key}")
                   if kick_key: outputs.append(f"[f=flv:onfail=ignore]rtmps://fa723fc1b171.global-contribute.live-video.net/app/{kick_key}")
                   
+                  # تم إرجاع الخصائص المحذوفة (-map 0:v و -map 1:a) لحل مشكلة tee
                   ffmpeg_cmd = [
                       'ffmpeg', '-y', '-f', 'x11grab', '-framerate', '60', '-s', f'{width}x{height}', '-i', f":{disp.display}",
                       '-f', 'pulse', '-i', f"{sink_name}.monitor", '-c:v', 'libx264', '-preset', 'ultrafast', '-b:v', '4000k',
-                      '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-f', 'tee', "|".join(outputs)
+                      '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', 
+                      '-map', '0:v', '-map', '1:a', 
+                      '-f', 'tee', "|".join(outputs)
                   ]
                   ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
                   active_wait(driver, stream_duration, control_url)
