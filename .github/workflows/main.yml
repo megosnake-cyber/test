@@ -198,10 +198,10 @@ jobs:
                   # الشاشة الثانية (العداد) يتم قصها لتصبح 660x230 
                   # ثم يتم تركيبهم على خلفية 720x1280
                   filter_complex = (
-                      "[1:v]crop=660:230:100:150[sub_cropped];"
+                      "[1:v]crop=660:180:100:200[sub_cropped];" # قصصنا 200px من الأعلى بدلاً من 150px
                       "color=c=black:s=720x1280:r=40[bg];"
                       "[bg][0:v]overlay=x=30:y=140[bg1];"
-                      "[bg1][sub_cropped]overlay=x=30:y=1050[outv]"
+                      "[bg1][sub_cropped]overlay=x=30:y=1045[outv]" # رفعنا العداد ليكون الفرق 5px فقط رياضياً لتعويض الفراغ البصري
                   )
 
                   ffmpeg_cmd = [
