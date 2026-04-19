@@ -47,7 +47,7 @@ jobs:
           pactl load-module module-null-sink sink_name=Sink1
 
       - name: Python Setup
-        run: pip install selenium pyvirtualdisplay requests elevenlabs pydub
+        run: pip install selenium pyvirtualdisplay requests elevenlabs
 
       - name: Create Python Script
         run: |
@@ -58,12 +58,10 @@ jobs:
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
           from selenium.webdriver.common.by import By
-          from pydub import AudioSegment
-          from pydub.generators import WhiteNoise
           from elevenlabs.client import ElevenLabs
 
           # ==========================================
-          # إعدادات البث
+          # إعدادات البث والمروحة
           # ==========================================
           URL1_CONTROL = "https://meja.do.am/work/url1.txt"
           APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbxktpGQjfoRpKjszasSI6hs7k8xCQ4gP_1p7-BDlHGorBTolQmQActMDayp4aMPLUJM/exec"
@@ -72,6 +70,9 @@ jobs:
           APPS_SCRIPT_URL2 = "https://script.google.com/macros/s/AKfycbwdVaCnCfcwFVnyY1wEOOWQawopiDTDEzfS2wcPMhWAG3VBHNJ-4AAwIKX80NjBWaMJ/exec"
 
           TOTAL_SESSION_TIME = 5 * 3600 
+
+          # تحكم في صوت مروحة الكمبيوتر (0.08 يعتبر صوت واضح، يمكنك زيادته لـ 0.1 أو خفضه لـ 0.05)
+          FAN_VOLUME = 0.08 
 
           # ==========================================
           # إعدادات المعلق الصوتي الذكي والشيت
@@ -192,21 +193,6 @@ jobs:
                       continue
               return False, last_error_msg
 
-          def make_bad_mic_effect(filename):
-              try:
-                  audio = AudioSegment.from_mp3(filename)
-                  slow_audio = audio._spawn(audio.raw_data, overrides={
-                      "frame_rate": int(audio.frame_rate * 0.90)
-                  }).set_frame_rate(audio.frame_rate)
-                  
-                  random_noise_level = random.randint(35, 42)
-                  noise = WhiteNoise().to_audio_segment(duration=len(slow_audio)) - random_noise_level
-                  mixed = slow_audio.overlay(noise)
-                  mixed = mixed.high_pass_filter(250).low_pass_filter(3500)
-                  mixed.export(filename, format="mp3")
-              except Exception as e:
-                  print(f"⚠️ Mic Effect Error: {e}")
-
           def run_continuous_ai_bot(sink_name):
               os.environ['PULSE_SINK'] = sink_name
               processed_comments = set()
@@ -241,7 +227,7 @@ jobs:
                                   is_success, error_msg = generate_audio_official(ai_reply, api_keys, filename)
                                   
                                   if is_success:
-                                      make_bad_mic_effect(filename)
+                                      # تم إلغاء تأثير المايك القديم ليظهر الصوت نقياً
                                       subprocess.run(['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', filename])
                                       processed_comments.add(unique_id)
                                   
@@ -292,7 +278,7 @@ jobs:
 
                   driver = webdriver.Chrome(options=opts)
                   
-                  # 1. تجهيز رابط الـ Apps Script (مع دمج العنوان لو وجد)
+                  # 1. تجهيز رابط الـ Apps Script
                   separator = "&" if "?" in apps_script_url else "?"
                   trigger_url = f"{apps_script_url}{separator}nocache={int(time.time())}"
                   if stream_title:
@@ -301,7 +287,7 @@ jobs:
                   print(f"🔗 Opening Publishing Link in Game Browser: {trigger_url}")
                   driver.get(trigger_url)
                   
-                  # 2. التقاط ID البث بنظام فحص ذكي وصارم جداً
+                  # 2. التقاط ID البث بنظام فحص ذكي
                   if is_first_stream:
                       live_id = None
                       print("⏳ Waiting up to 30 seconds to capture LIVE_ID...")
@@ -345,21 +331,21 @@ jobs:
                       driver.get(target_url)
                       time.sleep(8)
 
-                  if is_first_stream:
-                      fan_cmd = [
-                          'ffplay', '-f', 'lavfi', 
-                          '-i', 'anoisesrc=a=0.015:c=brown, tremolo=f=0.05:d=0.4', 
-                          '-nodisp', '-loop', '0', '-loglevel', 'quiet'
-                      ]
-                      fan_env = os.environ.copy()
-                      fan_env['PULSE_SINK'] = sink_name
-                      fan_process = subprocess.Popen(fan_cmd, env=fan_env)
-                      print("🌬️ Realistic Background Fan Noise started.")
+                  # تشغيل المعلق الصوتي والمروحة (تعمل في كلا البثين)
+                  fan_cmd = [
+                      'ffplay', '-f', 'lavfi', 
+                      '-i', f'anoisesrc=a={FAN_VOLUME}:c=pink,lowpass=f=800,tremolo=f=0.04:d=0.6', 
+                      '-nodisp', '-loop', '0', '-loglevel', 'quiet'
+                  ]
+                  fan_env = os.environ.copy()
+                  fan_env['PULSE_SINK'] = sink_name
+                  fan_process = subprocess.Popen(fan_cmd, env=fan_env)
+                  print(f"🌬️ Realistic Background PC Fan Noise started (Volume: {FAN_VOLUME}).")
 
-                      bot_process = Process(target=run_continuous_ai_bot, args=(sink_name,))
-                      bot_process.start()
+                  bot_process = Process(target=run_continuous_ai_bot, args=(sink_name,))
+                  bot_process.start()
 
-                  # 4. تشغيل التسجيل والبث لليوتيوب فقط (بدون tee لتقليل العبء)
+                  # 4. تشغيل التسجيل والبث
                   ffmpeg_cmd = [
                       'ffmpeg', '-y',
                       '-thread_queue_size', '1024',
@@ -421,23 +407,21 @@ jobs:
               ENABLE_STREAM1 = os.environ.get('ENABLE_STREAM1', '1') == '1'
               ENABLE_STREAM2 = os.environ.get('ENABLE_STREAM2', '1') == '1'
               
-              # تشغيل البث الأول (المدة: 1:40 إلى 2:15) أي 6000 إلى 8100 ثانية
+              # تشغيل البث الأول
               if ENABLE_STREAM1 and R1:
                   print("▶️ Starting First Stream...")
                   start_stream(R1, "Sink1", URL1_CONTROL, APPS_SCRIPT_URL1, 6000, 8100, stream_title=None, initial_delay=0, is_first_stream=True)
               elif not ENABLE_STREAM1:
                   print("⏸️ First Stream is DISABLED (ENABLE_STREAM1 = 0). Skipping...")
               
-              # تشغيل البث الثاني (المدة: 2:12 إلى 2:48) أي 7920 إلى 10080 ثانية
+              # تشغيل البث الثاني
               if ENABLE_STREAM2 and R2:
-                  # استخراج رقم الهاشتاج من الملف
                   try:
                       with open("hashtag.txt", "r") as f:
                           hashtag_num = int(f.read().strip())
                   except:
                       hashtag_num = 32
                       
-                  # الانتظار بين البثين فقط إذا كان البث الأول قد عمل فعلاً
                   if ENABLE_STREAM1 and R1:
                       wait_time = random.randint(600, 1200)
                       print(f"⏳ Waiting for {wait_time} seconds ({wait_time/60:.2f} minutes) before starting the second stream...")
@@ -447,7 +431,6 @@ jobs:
                   print(f"▶️ Starting Second Stream with title: {stream2_title} ...")
                   start_stream(R2, "Sink1", URL2_CONTROL, APPS_SCRIPT_URL2, 7920, 10080, stream_title=stream2_title, initial_delay=0, is_first_stream=False)
                   
-                  # زيادة رقم الهاشتاج وحفظه بالملف لتحديث المستودع
                   with open("hashtag.txt", "w") as f:
                       f.write(str(hashtag_num + 1))
               elif not ENABLE_STREAM2:
