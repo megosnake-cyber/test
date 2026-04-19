@@ -11,8 +11,8 @@ concurrency:
 
 env:
   # نظام التحكم في تشغيل أو إيقاف البثوث (1 = شغال | 0 = متوقف)
-  ENABLE_STREAM1: 0
-  ENABLE_STREAM2: 1
+  ENABLE_STREAM1: 1
+  ENABLE_STREAM2: 0
 
 jobs:
   stream:
@@ -47,38 +47,30 @@ jobs:
           pactl load-module module-null-sink sink_name=Sink1
 
       - name: Python Setup
-        run: pip install selenium pyvirtualdisplay requests elevenlabs
+        run: pip install selenium pyvirtualdisplay requests
 
       - name: Create Python Script
         run: |
           cat << 'EOF' > main.py
-          import os, subprocess, time, requests, signal, random, urllib.parse, re
-          from multiprocessing import Process
+          import os, subprocess, time, requests, signal, random, urllib.parse
           from pyvirtualdisplay import Display
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
           from selenium.webdriver.common.by import By
-          from elevenlabs.client import ElevenLabs
 
           # ==========================================
           # إعدادات البث والمروحة
           # ==========================================
           URL1_CONTROL = "https://meja.do.am/work/url1.txt"
-          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbxktpGQjfoRpKjszasSI6hs7k8xCQ4gP_1p7-BDlHGorBTolQmQActMDayp4aMPLUJM/exec"
+          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/111AKfycbxktpGQjfoRpKjszasSI6hs7k8xCQ4gP_1p7-BDlHGorBTolQmQActMDayp4aMPLUJM/exec"
           
           URL2_CONTROL = "https://meja.do.am/work/url2.txt"
           APPS_SCRIPT_URL2 = "https://script.google.com/macros/s/AKfycbwdVaCnCfcwFVnyY1wEOOWQawopiDTDEzfS2wcPMhWAG3VBHNJ-4AAwIKX80NjBWaMJ/exec"
 
           TOTAL_SESSION_TIME = 5 * 3600 
 
-          # تحكم في صوت مروحة الكمبيوتر (0.08 يعتبر صوت واضح، يمكنك زيادته لـ 0.1 أو خفضه لـ 0.05)
+          # تحكم في صوت مروحة الكمبيوتر
           FAN_VOLUME = 0.08 
-
-          # ==========================================
-          # إعدادات المعلق الصوتي الذكي والشيت
-          # ==========================================
-          WEB_APP_URL = "https://script.google.com/macros/s/AKfycby-1VgIowDBtMCaY4IOCriEG8YRIIQqcB9cXvf7KmbkfZEnG4iD1Hg66HieuQ86xFVH8g/exec"
-          VOICE_ID = "CwhRBWXzGAHq8TQ4Fs17"
 
           def kill_all(signum, frame):
               os._exit(0)
@@ -119,141 +111,28 @@ jobs:
                   time.sleep(3)
 
           # ==========================================
-          # دوال المعلق الصوتي (AI Bot)
-          # ==========================================
-          def get_remote_api_keys():
-              API_FILE_URL = "https://meja.do.am/aimp3/api.txt"
-              try:
-                  response = requests.get(API_FILE_URL)
-                  if response.status_code == 200:
-                      return [k.strip() for k in response.text.splitlines() if len(k.strip()) > 10]
-              except:
-                  return []
-
-          def is_english_username(username):
-              try:
-                  username.encode('ascii')
-                  return True
-              except UnicodeEncodeError:
-                  return False
-
-          def get_gpt_reply(comment, username):
-              try:
-                  clean_name = username.replace('@', '').strip()
-                  if is_english_username(clean_name):
-                      placement = random.choice(["before", "after", "none"])
-                  else:
-                      placement = "none" 
-                      
-                  if placement == "before":
-                      name_instruction = f"Casually start with the user '{clean_name}' (e.g. 'Yo {clean_name}', 'Wait, {clean_name}...')."
-                  elif placement == "after":
-                      name_instruction = f"Casually end by mentioning '{clean_name}'."
-                  else:
-                      name_instruction = "Do NOT mention any username."
-
-                  prompt = f"""You are a young, highly entertaining live streamer. 
-                  Read this viewer comment: '{comment}'. If it's not in English, understand it first, but REPLY ONLY IN ENGLISH.
-                  Use natural American streamer slang (bro, chat, wild, legit, W, L). 
-                  CRITICAL REALISM RULE: You MUST include human filler words like 'uh', 'um', 'like', or 'wait' to sound 100% unscripted and real. 
-                  Laugh (say 'haha' or 'pfft') if it's funny, act hyped, or act genuine if it's sad.
-                  CRITICAL RULE 2: MAXIMUM 20 WORDS TOTAL. Extremely short!
-                  {name_instruction}
-                  IMPORTANT: NO emojis. ONLY output the exact words you will speak."""
-                  
-                  encoded_prompt = urllib.parse.quote(prompt)
-                  url = f"https://text.pollinations.ai/{encoded_prompt}"
-                  
-                  response = requests.get(url)
-                  if response.status_code == 200:
-                      return response.text.strip()
-                      
-              except Exception as e:
-                  print(f"⚠️ AI Error: {e}")
-                  
-              return "Um, appreciate the comment, bro!" 
-
-          def generate_audio_official(text, api_keys, filename):
-              last_error_msg = ""
-              for key in api_keys:
-                  try:
-                      client = ElevenLabs(api_key=key)
-                      audio_generator = client.text_to_speech.convert(
-                          text=text,
-                          voice_id=VOICE_ID,
-                          model_id="eleven_multilingual_v2",
-                          output_format="mp3_44100_128"
-                      )
-                      with open(filename, "wb") as f:
-                          for chunk in audio_generator:
-                              if chunk: f.write(chunk)
-                      return True, ""
-                  except Exception as e:
-                      last_error_msg = str(e)
-                      continue
-              return False, last_error_msg
-
-          def run_continuous_ai_bot(sink_name):
-              os.environ['PULSE_SINK'] = sink_name
-              processed_comments = set()
-              print("🤖 Bot Voice Started in Background...")
-              
-              while True:
-                  api_keys = get_remote_api_keys()
-                  if not api_keys:
-                      time.sleep(30)
-                      continue
-
-                  try:
-                      response = requests.get(WEB_APP_URL)
-                      data = response.json()
-                      rows = data if isinstance(data, list) else data.get('data', [])
-
-                      if rows:
-                          for index, row in enumerate(rows):
-                              try:
-                                  username = str(row[0]).strip()
-                                  comment = str(row[2]).strip()
-                                  unique_id = f"{username}_{comment}"
-
-                                  if unique_id in processed_comments:
-                                      continue 
-
-                                  print(f"👤 Comment from: {username} | 💬 {comment}")
-                                  ai_reply = get_gpt_reply(comment, username)
-                                  print(f"📝 Reply: {ai_reply}")
-
-                                  filename = f"reply_{index}.mp3"
-                                  is_success, error_msg = generate_audio_official(ai_reply, api_keys, filename)
-                                  
-                                  if is_success:
-                                      # تم إلغاء تأثير المايك القديم ليظهر الصوت نقياً
-                                      subprocess.run(['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', filename])
-                                      processed_comments.add(unique_id)
-                                  
-                              except IndexError:
-                                  continue
-                  except Exception as e:
-                      pass
-                  time.sleep(20)
-
-          # ==========================================
           # دالة البث الرئيسية 
           # ==========================================
-          def start_stream(youtube_key, sink_name, control_url, apps_script_url, min_dur, max_dur, stream_title=None, initial_delay=0, is_first_stream=False):
+          def start_stream(youtube_key, sink_name, control_url, apps_script_url, min_dur, max_dur, stream_title=None, initial_delay=0):
               if initial_delay > 0:
                   time.sleep(initial_delay)
               
-              width, height = 720, 1280
               os.environ['PULSE_SINK'] = sink_name
-              disp = Display(visible=0, size=(width, height), backend='xvfb')
-              disp.start()
-              subprocess.Popen(['unclutter', '-idle', '0'])
+              
+              # تجهيز شاشتين وهميتين: واحدة للعبة والثانية لعداد المشتركين
+              disp1 = Display(visible=0, size=(660, 900), backend='xvfb')
+              disp1.start()
+              
+              disp2 = Display(visible=0, size=(860, 500), backend='xvfb')
+              disp2.start()
+              
+              subprocess.Popen(['unclutter', '-idle', '0', '-display', f":{disp1.display}"])
+              subprocess.Popen(['unclutter', '-idle', '0', '-display', f":{disp2.display}"])
               
               ffmpeg_proc = None
-              bot_process = None
               fan_process = None
-              driver = None
+              driver1 = None
+              driver2 = None
               
               stream_duration = random.randint(min_dur, max_dur)
               print(f"🎯 Target Stream Duration: {stream_duration} seconds ({stream_duration/60:.2f} minutes).")
@@ -273,65 +152,37 @@ jobs:
                   opts.add_experimental_option('useAutomationExtension', False)
                   opts.add_argument('--disable-blink-features=AutomationControlled')
                   opts.add_argument('--hide-scrollbars')
-                  opts.add_argument(f'--window-size={width},{height}')
                   opts.add_argument('--kiosk')
 
-                  driver = webdriver.Chrome(options=opts)
+                  # 1. تشغيل متصفح عداد المشتركين على الشاشة الثانية
+                  os.environ['DISPLAY'] = f":{disp2.display}"
+                  driver2 = webdriver.Chrome(options=opts)
+                  print("🔗 Opening Sub Counter...")
+                  driver2.get("https://egydramo.blogspot.com/2026/01/sub.html")
+
+                  # 2. تشغيل متصفح اللعبة على الشاشة الأولى
+                  os.environ['DISPLAY'] = f":{disp1.display}"
+                  driver1 = webdriver.Chrome(options=opts)
                   
-                  # 1. تجهيز رابط الـ Apps Script
                   separator = "&" if "?" in apps_script_url else "?"
                   trigger_url = f"{apps_script_url}{separator}nocache={int(time.time())}"
                   if stream_title:
                       trigger_url += f"&title={urllib.parse.quote(stream_title)}"
                       
                   print(f"🔗 Opening Publishing Link in Game Browser: {trigger_url}")
-                  driver.get(trigger_url)
+                  driver1.get(trigger_url)
                   
-                  # 2. التقاط ID البث بنظام فحص ذكي
-                  if is_first_stream:
-                      live_id = None
-                      print("⏳ Waiting up to 30 seconds to capture LIVE_ID...")
-                      for attempt in range(15):
-                          time.sleep(2)
-                          try:
-                              body_text = driver.find_element(By.TAG_NAME, 'body').text.strip()
-                              
-                              last_word = body_text.split()[-1] if body_text.split() else ""
-                              if len(last_word) == 11 and re.match(r'^[a-zA-Z0-9_-]{11}$', last_word):
-                                  live_id = last_word
-                              else:
-                                  potential_ids = re.findall(r'(?<![a-zA-Z0-9_-])[a-zA-Z0-9_-]{11}(?![a-zA-Z0-9_-])', body_text)
-                                  valid_ids = [pid for pid in potential_ids if not pid.isdigit() and "WIZ" not in pid]
-                                  if valid_ids:
-                                      live_id = valid_ids[-1] 
-                              
-                              if live_id:
-                                  print(f"📡 Captured LIVE_ID: {live_id} (Attempt {attempt+1})")
-                                  encoded_id = urllib.parse.quote(live_id)
-                                  requests.get(f"{WEB_APP_URL}?LIVE_ID={encoded_id}&nocache={int(time.time())}", timeout=30)
-                                  print("✅ LIVE_ID sent to Google Sheet successfully.")
-                                  break
-                          except Exception as e:
-                              pass
-                              
-                      if not live_id:
-                          try:
-                              final_text = driver.find_element(By.TAG_NAME, 'body').text.strip()
-                              print(f"⚠️ Could not extract valid ID after 30 seconds. Response was: {final_text}")
-                          except:
-                              print("⚠️ Could not extract valid ID and could not read body.")
-                  else:
-                      print("⏳ Waiting 10 seconds for stream to be scheduled in browser...")
-                      time.sleep(10)
+                  print("⏳ Waiting 10 seconds for stream to be scheduled in browser...")
+                  time.sleep(10)
                   
                   # 3. توجيه نفس المتصفح إلى رابط اللعبة
                   target_url = get_url_from_file(control_url)
                   if target_url:
                       print(f"📺 Navigating to Game Content: {target_url}")
-                      driver.get(target_url)
+                      driver1.get(target_url)
                       time.sleep(8)
 
-                  # تشغيل المعلق الصوتي والمروحة (تعمل في كلا البثين)
+                  # تشغيل صوت المروحة
                   fan_cmd = [
                       'ffplay', '-f', 'lavfi', 
                       '-i', f'anoisesrc=a={FAN_VOLUME}:c=pink,lowpass=f=800,tremolo=f=0.04:d=0.6', 
@@ -342,28 +193,43 @@ jobs:
                   fan_process = subprocess.Popen(fan_cmd, env=fan_env)
                   print(f"🌬️ Realistic Background PC Fan Noise started (Volume: {FAN_VOLUME}).")
 
-                  bot_process = Process(target=run_continuous_ai_bot, args=(sink_name,))
-                  bot_process.start()
+                  # 4. دمج الشاشتين والتسجيل عبر FFmpeg
+                  # الشاشة الأولى (اللعبة) بمقاس 660x900
+                  # الشاشة الثانية (العداد) يتم قصها لتصبح 660x230 
+                  # ثم يتم تركيبهم على خلفية 720x1280
+                  filter_complex = (
+                      "[1:v]crop=660:230:100:150[sub_cropped];"
+                      "color=c=black:s=720x1280:r=40[bg];"
+                      "[bg][0:v]overlay=x=30:y=140[bg1];"
+                      "[bg1][sub_cropped]overlay=x=30:y=1050[outv]"
+                  )
 
-                  # 4. تشغيل التسجيل والبث
                   ffmpeg_cmd = [
                       'ffmpeg', '-y',
                       '-thread_queue_size', '1024',
                       '-f', 'x11grab',
-                      '-framerate', '60',
-                      '-s', f'{width}x{height}',
-                      '-i', f":{disp.display}",
+                      '-framerate', '40',
+                      '-s', '660x900',
+                      '-i', f":{disp1.display}",
+                      '-thread_queue_size', '1024',
+                      '-f', 'x11grab',
+                      '-framerate', '40',
+                      '-s', '860x500',
+                      '-i', f":{disp2.display}",
                       '-f', 'pulse',
                       '-i', f"{sink_name}.monitor",
+                      '-filter_complex', filter_complex,
+                      '-map', '[outv]',
+                      '-map', '2:a',
                       '-c:v', 'libx264',
                       '-preset', 'ultrafast',
                       '-tune', 'zerolatency',
-                      '-b:v', '2500k',
-                      '-maxrate', '2500k',
-                      '-bufsize', '5000k',
-                      '-r', '60',
-                      '-g', '120',
-                      '-keyint_min', '120',
+                      '-b:v', '1500k',
+                      '-maxrate', '1500k',
+                      '-bufsize', '3000k',
+                      '-r', '40',
+                      '-g', '80',
+                      '-keyint_min', '80',
                       '-sc_threshold', '0',
                       '-pix_fmt', 'yuv420p',
                       '-c:a', 'aac',
@@ -373,31 +239,23 @@ jobs:
                   ]
 
                   ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
-                  active_wait(driver, stream_duration, control_url)
+                  active_wait(driver1, stream_duration, control_url)
 
               except Exception as e:
                   print(f"Stream encountered an error: {e}")
               finally:
                   if fan_process:
                       fan_process.terminate()
-                  if bot_process:
-                      bot_process.terminate()
                   if ffmpeg_proc:
                       ffmpeg_proc.kill()
                   try:
-                      if driver: driver.quit()
+                      if driver1: driver1.quit()
+                      if driver2: driver2.quit()
                   except:
                       pass
-                  disp.stop()
+                  disp1.stop()
+                  disp2.stop()
                   print("🛑 Stream ended successfully.")
-
-                  if is_first_stream:
-                      print("🧹 First stream ended. Clearing LIVE_ID in Sheet...")
-                      try:
-                          requests.get(f"{WEB_APP_URL}?LIVE_ID=&nocache={int(time.time())}", timeout=30, allow_redirects=True)
-                          print("✅ LIVE_ID cleared successfully.")
-                      except Exception as e:
-                          print(f"⚠️ Failed to clear LIVE_ID: {e}")
 
           if __name__ == "__main__":
               session_start = time.time()
@@ -410,7 +268,7 @@ jobs:
               # تشغيل البث الأول
               if ENABLE_STREAM1 and R1:
                   print("▶️ Starting First Stream...")
-                  start_stream(R1, "Sink1", URL1_CONTROL, APPS_SCRIPT_URL1, 6000, 8100, stream_title=None, initial_delay=0, is_first_stream=True)
+                  start_stream(R1, "Sink1", URL1_CONTROL, APPS_SCRIPT_URL1, 6000, 8100, stream_title=None, initial_delay=0)
               elif not ENABLE_STREAM1:
                   print("⏸️ First Stream is DISABLED (ENABLE_STREAM1 = 0). Skipping...")
               
@@ -429,7 +287,7 @@ jobs:
                   
                   stream2_title = f"Snake game breaks world record #{hashtag_num}"
                   print(f"▶️ Starting Second Stream with title: {stream2_title} ...")
-                  start_stream(R2, "Sink1", URL2_CONTROL, APPS_SCRIPT_URL2, 7920, 10080, stream_title=stream2_title, initial_delay=0, is_first_stream=False)
+                  start_stream(R2, "Sink1", URL2_CONTROL, APPS_SCRIPT_URL2, 7920, 10080, stream_title=stream2_title, initial_delay=0)
                   
                   with open("hashtag.txt", "w") as f:
                       f.write(str(hashtag_num + 1))
