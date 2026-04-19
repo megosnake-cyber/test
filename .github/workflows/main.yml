@@ -12,7 +12,7 @@ concurrency:
 env:
   # نظام التحكم في تشغيل أو إيقاف البثوث (1 = شغال | 0 = متوقف)
   ENABLE_STREAM1: 0
-  ENABLE_STREAM2: 1
+  ENABLE_STREAM2: 0
 
 jobs:
   stream:
