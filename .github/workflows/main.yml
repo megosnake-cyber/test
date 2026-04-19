@@ -194,12 +194,14 @@ jobs:
                   print(f"🌬️ Realistic Background PC Fan Noise started (Volume: {FAN_VOLUME}).")
 
                   # 4. دمج الشاشتين والتسجيل عبر FFmpeg
-                  # تم زيادة القص من الأعلى للعداد ليكون 190 لابتلاع الفراغ الموجود في الموقع نفسه
+                  # الشاشة الأولى (اللعبة) بمقاس 660x900
+                  # الشاشة الثانية (العداد) يتم قصها لتصبح 660x230 
+                  # ثم يتم تركيبهم على خلفية 720x1280
                   filter_complex = (
-                      "[1:v]crop=660:220:100:190[sub_cropped];"
+                      "[1:v]crop=660:230:100:150[sub_cropped];"
                       "color=c=black:s=720x1280:r=40[bg];"
                       "[bg][0:v]overlay=x=30:y=140[bg1];"
-                      "[bg1][sub_cropped]overlay=x=30:y=850[outv]"
+                      "[bg1][sub_cropped]overlay=x=30:y=800[outv]"
                   )
 
                   ffmpeg_cmd = [
