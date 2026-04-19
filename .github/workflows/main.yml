@@ -9,6 +9,11 @@ concurrency:
   group: streaming-group
   cancel-in-progress: true
 
+env:
+  # نظام التحكم في تشغيل أو إيقاف البثوث (1 = شغال | 0 = متوقف)
+  ENABLE_STREAM1: 1
+  ENABLE_STREAM2: 1
+
 jobs:
   stream:
     runs-on: ubuntu-latest
@@ -27,6 +32,12 @@ jobs:
           repository: ${{ github.repository }}
           retain_days: 0
           keep_minimum_runs: 1
+
+      - name: 🔢 Initialize Hashtag System
+        run: |
+          if [ ! -f hashtag.txt ]; then
+            echo "32" > hashtag.txt
+          fi
 
       - name: System Setup
         run: |
@@ -243,7 +254,7 @@ jobs:
           # ==========================================
           # دالة البث الرئيسية 
           # ==========================================
-          def start_stream(youtube_key, kick_key, sink_name, control_url, apps_script_url, initial_delay=0, is_first_stream=False):
+          def start_stream(youtube_key, sink_name, control_url, apps_script_url, min_dur, max_dur, stream_title=None, initial_delay=0, is_first_stream=False):
               if initial_delay > 0:
                   time.sleep(initial_delay)
               
@@ -258,7 +269,7 @@ jobs:
               fan_process = None
               driver = None
               
-              stream_duration = random.randint(6000, 8100)
+              stream_duration = random.randint(min_dur, max_dur)
               print(f"🎯 Target Stream Duration: {stream_duration} seconds ({stream_duration/60:.2f} minutes).")
 
               try:
@@ -281,10 +292,13 @@ jobs:
 
                   driver = webdriver.Chrome(options=opts)
                   
-                  # 1. فتح رابط الجدولة والنشر داخل المتصفح نفسه أولاً
-                  print(f"🔗 Opening Publishing Link in Game Browser: {apps_script_url}")
+                  # 1. تجهيز رابط الـ Apps Script (مع دمج العنوان لو وجد)
                   separator = "&" if "?" in apps_script_url else "?"
                   trigger_url = f"{apps_script_url}{separator}nocache={int(time.time())}"
+                  if stream_title:
+                      trigger_url += f"&title={urllib.parse.quote(stream_title)}"
+                      
+                  print(f"🔗 Opening Publishing Link in Game Browser: {trigger_url}")
                   driver.get(trigger_url)
                   
                   # 2. التقاط ID البث بنظام فحص ذكي وصارم جداً
@@ -296,16 +310,14 @@ jobs:
                           try:
                               body_text = driver.find_element(By.TAG_NAME, 'body').text.strip()
                               
-                              # البحث الصارم 1: سحب آخر كلمة إذا كانت 11 حرفاً (لأنك تطبعه في نهاية الرسالة)
                               last_word = body_text.split()[-1] if body_text.split() else ""
                               if len(last_word) == 11 and re.match(r'^[a-zA-Z0-9_-]{11}$', last_word):
                                   live_id = last_word
                               else:
-                                  # البحث الصارم 2: استخراج كود مكون من 11 حرفاً بالضبط
                                   potential_ids = re.findall(r'(?<![a-zA-Z0-9_-])[a-zA-Z0-9_-]{11}(?![a-zA-Z0-9_-])', body_text)
                                   valid_ids = [pid for pid in potential_ids if not pid.isdigit() and "WIZ" not in pid]
                                   if valid_ids:
-                                      live_id = valid_ids[-1] # نأخذ الأخير لضمان أنه الـ ID المطلوب
+                                      live_id = valid_ids[-1] 
                               
                               if live_id:
                                   print(f"📡 Captured LIVE_ID: {live_id} (Attempt {attempt+1})")
@@ -347,15 +359,7 @@ jobs:
                       bot_process = Process(target=run_continuous_ai_bot, args=(sink_name,))
                       bot_process.start()
 
-                  # 4. تشغيل التسجيل والبث
-                  outputs = []
-                  if youtube_key:
-                      outputs.append(f"[f=flv:onfail=ignore]rtmp://a.rtmp.youtube.com/live2/{youtube_key}")
-                  if kick_key:
-                      outputs.append(f"[f=flv:onfail=ignore]rtmps://fa723fc1b171.global-contribute.live-video.net/app/{kick_key}")
-                  
-                  tee_output = "|".join(outputs)
-
+                  # 4. تشغيل التسجيل والبث لليوتيوب فقط (بدون tee لتقليل العبء)
                   ffmpeg_cmd = [
                       'ffmpeg', '-y',
                       '-thread_queue_size', '1024',
@@ -368,9 +372,9 @@ jobs:
                       '-c:v', 'libx264',
                       '-preset', 'ultrafast',
                       '-tune', 'zerolatency',
-                      '-b:v', '4000k',
-                      '-maxrate', '4000k',
-                      '-bufsize', '8000k',
+                      '-b:v', '2500k',
+                      '-maxrate', '2500k',
+                      '-bufsize', '5000k',
                       '-r', '60',
                       '-g', '120',
                       '-keyint_min', '120',
@@ -378,10 +382,8 @@ jobs:
                       '-pix_fmt', 'yuv420p',
                       '-c:a', 'aac',
                       '-b:a', '128k',
-                      '-map', '0:v',
-                      '-map', '1:a',
-                      '-f', 'tee',
-                      tee_output
+                      '-f', 'flv',
+                      f"rtmp://a.rtmp.youtube.com/live2/{youtube_key}"
                   ]
 
                   ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
@@ -416,19 +418,40 @@ jobs:
               
               R1 = os.environ.get('R1')
               R2 = os.environ.get('R2')
-              KICK_KEY = os.environ.get('KICK_KEY')
+              ENABLE_STREAM1 = os.environ.get('ENABLE_STREAM1', '1') == '1'
+              ENABLE_STREAM2 = os.environ.get('ENABLE_STREAM2', '1') == '1'
               
-              if R1 or KICK_KEY:
+              # تشغيل البث الأول (المدة: 1:40 إلى 2:15) أي 6000 إلى 8100 ثانية
+              if ENABLE_STREAM1 and R1:
                   print("▶️ Starting First Stream...")
-                  start_stream(R1, KICK_KEY, "Sink1", URL1_CONTROL, APPS_SCRIPT_URL1, 0, is_first_stream=True)
+                  start_stream(R1, "Sink1", URL1_CONTROL, APPS_SCRIPT_URL1, 6000, 8100, stream_title=None, initial_delay=0, is_first_stream=True)
+              elif not ENABLE_STREAM1:
+                  print("⏸️ First Stream is DISABLED (ENABLE_STREAM1 = 0). Skipping...")
               
-              if R2:
-                  wait_time = random.randint(600, 1200)
-                  print(f"⏳ Waiting for {wait_time} seconds ({wait_time/60:.2f} minutes) before starting the second stream...")
-                  time.sleep(wait_time)
+              # تشغيل البث الثاني (المدة: 2:12 إلى 2:48) أي 7920 إلى 10080 ثانية
+              if ENABLE_STREAM2 and R2:
+                  # استخراج رقم الهاشتاج من الملف
+                  try:
+                      with open("hashtag.txt", "r") as f:
+                          hashtag_num = int(f.read().strip())
+                  except:
+                      hashtag_num = 32
+                      
+                  # الانتظار بين البثين فقط إذا كان البث الأول قد عمل فعلاً
+                  if ENABLE_STREAM1 and R1:
+                      wait_time = random.randint(600, 1200)
+                      print(f"⏳ Waiting for {wait_time} seconds ({wait_time/60:.2f} minutes) before starting the second stream...")
+                      time.sleep(wait_time)
                   
-                  print("▶️ Starting Second Stream...")
-                  start_stream(R2, None, "Sink1", URL2_CONTROL, APPS_SCRIPT_URL2, 0, is_first_stream=False)
+                  stream2_title = f"Snake game breaks world record #{hashtag_num}"
+                  print(f"▶️ Starting Second Stream with title: {stream2_title} ...")
+                  start_stream(R2, "Sink1", URL2_CONTROL, APPS_SCRIPT_URL2, 7920, 10080, stream_title=stream2_title, initial_delay=0, is_first_stream=False)
+                  
+                  # زيادة رقم الهاشتاج وحفظه بالملف لتحديث المستودع
+                  with open("hashtag.txt", "w") as f:
+                      f.write(str(hashtag_num + 1))
+              elif not ENABLE_STREAM2:
+                  print("⏸️ Second Stream is DISABLED (ENABLE_STREAM2 = 0). Skipping...")
               
               elapsed = time.time() - session_start
               remaining = TOTAL_SESSION_TIME - elapsed
@@ -448,8 +471,18 @@ jobs:
         env:
           R1: ${{ secrets.R1 }}
           R2: ${{ secrets.R2 }}
-          KICK_KEY: ${{ secrets.KICK_KEY }}
+          ENABLE_STREAM1: ${{ env.ENABLE_STREAM1 }}
+          ENABLE_STREAM2: ${{ env.ENABLE_STREAM2 }}
         run: python main.py
+
+      - name: 💾 Commit Updated Hashtag
+        if: always()
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+          git add hashtag.txt
+          git commit -m "Update stream hashtag" || echo "No changes to commit"
+          git push
 
       - name: Wait & Restart
         if: always()
