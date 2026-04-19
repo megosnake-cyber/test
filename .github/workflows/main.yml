@@ -119,11 +119,12 @@ jobs:
               
               os.environ['PULSE_SINK'] = sink_name
               
-              # تجهيز شاشتين وهميتين: واحدة للعبة والثانية لعداد المشتركين
+              # الشاشة الأولى للعبة (660x900)
               disp1 = Display(visible=0, size=(660, 900), backend='xvfb')
               disp1.start()
               
-              disp2 = Display(visible=0, size=(860, 500), backend='xvfb')
+              # الشاشة الثانية للعداد (660x230) - بدون قص تماماً
+              disp2 = Display(visible=0, size=(660, 230), backend='xvfb')
               disp2.start()
               
               subprocess.Popen(['unclutter', '-idle', '0', '-display', f":{disp1.display}"])
@@ -172,10 +173,9 @@ jobs:
                   print(f"🔗 Opening Publishing Link in Game Browser: {trigger_url}")
                   driver1.get(trigger_url)
                   
-                  print("⏳ Waiting 10 seconds for stream to be scheduled in browser...")
+                  print("⏳ Waiting 10 seconds for stream setup...")
                   time.sleep(10)
                   
-                  # 3. توجيه نفس المتصفح إلى رابط اللعبة
                   target_url = get_url_from_file(control_url)
                   if target_url:
                       print(f"📺 Navigating to Game Content: {target_url}")
@@ -191,17 +191,14 @@ jobs:
                   fan_env = os.environ.copy()
                   fan_env['PULSE_SINK'] = sink_name
                   fan_process = subprocess.Popen(fan_cmd, env=fan_env)
-                  print(f"🌬️ Realistic Background PC Fan Noise started (Volume: {FAN_VOLUME}).")
 
                   # 4. دمج الشاشتين والتسجيل عبر FFmpeg
-                  # الشاشة الأولى (اللعبة) بمقاس 660x900
-                  # الشاشة الثانية (العداد) يتم قصها لتصبح 660x230 
-                  # ثم يتم تركيبهم على خلفية 720x1280
+                  # اللعبة (0:v) توضع عند x=30, y=140
+                  # العداد (1:v) يوضع عند x=30, y=1050 (تركنا 10px بعد نهاية اللعبة 1040)
                   filter_complex = (
-                      "[1:v]crop=660:500:100:150[sub_cropped];"
                       "color=c=black:s=720x1280:r=40[bg];"
                       "[bg][0:v]overlay=x=30:y=140[bg1];"
-                      "[bg1][sub_cropped]overlay=x=30:y=800[outv]"
+                      "[bg1][1:v]overlay=x=30:y=1050[outv]"
                   )
 
                   ffmpeg_cmd = [
@@ -214,7 +211,7 @@ jobs:
                       '-thread_queue_size', '1024',
                       '-f', 'x11grab',
                       '-framerate', '40',
-                      '-s', '860x500',
+                      '-s', '660x230',
                       '-i', f":{disp2.display}",
                       '-f', 'pulse',
                       '-i', f"{sink_name}.monitor",
@@ -265,14 +262,10 @@ jobs:
               ENABLE_STREAM1 = os.environ.get('ENABLE_STREAM1', '1') == '1'
               ENABLE_STREAM2 = os.environ.get('ENABLE_STREAM2', '1') == '1'
               
-              # تشغيل البث الأول
               if ENABLE_STREAM1 and R1:
                   print("▶️ Starting First Stream...")
                   start_stream(R1, "Sink1", URL1_CONTROL, APPS_SCRIPT_URL1, 6000, 8100, stream_title=None, initial_delay=0)
-              elif not ENABLE_STREAM1:
-                  print("⏸️ First Stream is DISABLED (ENABLE_STREAM1 = 0). Skipping...")
               
-              # تشغيل البث الثاني
               if ENABLE_STREAM2 and R2:
                   try:
                       with open("hashtag.txt", "r") as f:
@@ -282,30 +275,22 @@ jobs:
                       
                   if ENABLE_STREAM1 and R1:
                       wait_time = random.randint(600, 1200)
-                      print(f"⏳ Waiting for {wait_time} seconds ({wait_time/60:.2f} minutes) before starting the second stream...")
+                      print(f"⏳ Waiting {wait_time}s before second stream...")
                       time.sleep(wait_time)
                   
                   stream2_title = f"Snake game breaks world record #{hashtag_num}"
-                  print(f"▶️ Starting Second Stream with title: {stream2_title} ...")
                   start_stream(R2, "Sink1", URL2_CONTROL, APPS_SCRIPT_URL2, 7920, 10080, stream_title=stream2_title, initial_delay=0)
                   
                   with open("hashtag.txt", "w") as f:
                       f.write(str(hashtag_num + 1))
-              elif not ENABLE_STREAM2:
-                  print("⏸️ Second Stream is DISABLED (ENABLE_STREAM2 = 0). Skipping...")
               
               elapsed = time.time() - session_start
               remaining = TOTAL_SESSION_TIME - elapsed
-              
               if remaining > 0:
-                  print(f"⏳ Waiting for {remaining:.0f} seconds to finish the 5-hour session limit...")
+                  print(f"⏳ Waiting {remaining:.0f}s to finish session...")
                   while remaining > 0:
                       time.sleep(min(60, remaining))
                       remaining -= 60
-                      if int(remaining) % 600 < 60 and remaining > 0:
-                          print(f"🔄 Session active... {int(remaining)} seconds left before restart.")
-              
-              print("✅ 5-hour session completed. Ready to trigger restart.")
           EOF
 
       - name: Run Streaming Script
