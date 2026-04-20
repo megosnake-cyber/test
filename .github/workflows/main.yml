@@ -11,7 +11,6 @@ concurrency:
 
 env:
   # نظام التحكم في تشغيل أو إيقاف البثوث (1 = شغال | 0 = متوقف)
-  ENABLE_STREAM1: 0
   ENABLE_STREAM2: 1
 
 jobs:
@@ -61,9 +60,6 @@ jobs:
           # ==========================================
           # إعدادات البث والمروحة
           # ==========================================
-          URL1_CONTROL = "https://meja.do.am/work/url1.txt"
-          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbxktpGQjfoRpKjszasSI6hs7k8xCQ4gP_1p7-BDlHGorBTolQmQActMDayp4aMPLUJM/exec"
-          
           URL2_CONTROL = "https://meja.do.am/work/url2.txt"
           APPS_SCRIPT_URL2 = "https://script.google.com/macros/s/AKfycbwdVaCnCfcwFVnyY1wEOOWQawopiDTDEzfS2wcPMhWAG3VBHNJ-4AAwIKX80NjBWaMJ/exec"
 
@@ -193,8 +189,6 @@ jobs:
                   fan_process = subprocess.Popen(fan_cmd, env=fan_env)
 
                   # 4. دمج الشاشتين والتسجيل عبر FFmpeg
-                  # اللعبة (0:v) توضع عند x=30, y=140 (الارتفاع 900، تنتهي عند 1040)
-                  # العداد (1:v) يوضع عند x=30, y=1040 فورا بدون مسافات
                   filter_complex = (
                       "color=c=black:s=720x1280:r=40[bg];"
                       "[bg][0:v]overlay=x=30:y=140[bg1];"
@@ -203,6 +197,7 @@ jobs:
 
                   ffmpeg_cmd = [
                       'ffmpeg', '-y',
+                      '-nostats', '-loglevel', 'error',
                       '-thread_queue_size', '1024',
                       '-f', 'x11grab',
                       '-framerate', '40',
@@ -221,9 +216,9 @@ jobs:
                       '-c:v', 'libx264',
                       '-preset', 'ultrafast',
                       '-tune', 'zerolatency',
-                      '-b:v', '1500k',
-                      '-maxrate', '1500k',
-                      '-bufsize', '3000k',
+                      '-b:v', '2500k',
+                      '-maxrate', '2500k',
+                      '-bufsize', '5000k',
                       '-r', '40',
                       '-g', '80',
                       '-keyint_min', '80',
@@ -257,14 +252,8 @@ jobs:
           if __name__ == "__main__":
               session_start = time.time()
               
-              R1 = os.environ.get('R1')
               R2 = os.environ.get('R2')
-              ENABLE_STREAM1 = os.environ.get('ENABLE_STREAM1', '1') == '1'
               ENABLE_STREAM2 = os.environ.get('ENABLE_STREAM2', '1') == '1'
-              
-              if ENABLE_STREAM1 and R1:
-                  print("▶️ Starting First Stream...")
-                  start_stream(R1, "Sink1", URL1_CONTROL, APPS_SCRIPT_URL1, 6000, 8100, stream_title=None, initial_delay=0)
               
               if ENABLE_STREAM2 and R2:
                   try:
@@ -273,11 +262,6 @@ jobs:
                   except:
                       hashtag_num = 32
                       
-                  if ENABLE_STREAM1 and R1:
-                      wait_time = random.randint(600, 1200)
-                      print(f"⏳ Waiting {wait_time}s before second stream...")
-                      time.sleep(wait_time)
-                  
                   stream2_title = f"Snake game breaks world record #{hashtag_num}"
                   start_stream(R2, "Sink1", URL2_CONTROL, APPS_SCRIPT_URL2, 7920, 10080, stream_title=stream2_title, initial_delay=0)
                   
@@ -295,9 +279,7 @@ jobs:
 
       - name: Run Streaming Script
         env:
-          R1: ${{ secrets.R1 }}
           R2: ${{ secrets.R2 }}
-          ENABLE_STREAM1: ${{ env.ENABLE_STREAM1 }}
           ENABLE_STREAM2: ${{ env.ENABLE_STREAM2 }}
         run: python main.py
 
