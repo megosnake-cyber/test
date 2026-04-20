@@ -193,12 +193,12 @@ jobs:
                   fan_process = subprocess.Popen(fan_cmd, env=fan_env)
 
                   # 4. دمج الشاشتين والتسجيل عبر FFmpeg
-                  # اللعبة (0:v) توضع عند x=30, y=140
-                  # العداد (1:v) يوضع عند x=30, y=1050 (تركنا 10px بعد نهاية اللعبة 1040)
+                  # اللعبة (0:v) توضع عند x=30, y=140 (الارتفاع 900، تنتهي عند 1040)
+                  # العداد (1:v) يوضع عند x=30, y=1040 فورا بدون مسافات
                   filter_complex = (
                       "color=c=black:s=720x1280:r=40[bg];"
                       "[bg][0:v]overlay=x=30:y=140[bg1];"
-                      "[bg1][1:v]overlay=x=30:y=650[outv]"
+                      "[bg1][1:v]overlay=x=30:y=1040[outv]"
                   )
 
                   ffmpeg_cmd = [
