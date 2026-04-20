@@ -11,8 +11,8 @@ concurrency:
 
 env:
   # نظام التحكم في تشغيل أو إيقاف البثوث (1 = شغال | 0 = متوقف)
-  ENABLE_STREAM1: 1
-  ENABLE_STREAM2: 0
+  ENABLE_STREAM1: 0
+  ENABLE_STREAM2: 1
 
 jobs:
   stream:
@@ -62,7 +62,7 @@ jobs:
           # إعدادات البث والمروحة
           # ==========================================
           URL1_CONTROL = "https://meja.do.am/work/url1.txt"
-          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/111AKfycbxktpGQjfoRpKjszasSI6hs7k8xCQ4gP_1p7-BDlHGorBTolQmQActMDayp4aMPLUJM/exec"
+          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycbxktpGQjfoRpKjszasSI6hs7k8xCQ4gP_1p7-BDlHGorBTolQmQActMDayp4aMPLUJM/exec"
           
           URL2_CONTROL = "https://meja.do.am/work/url2.txt"
           APPS_SCRIPT_URL2 = "https://script.google.com/macros/s/AKfycbwdVaCnCfcwFVnyY1wEOOWQawopiDTDEzfS2wcPMhWAG3VBHNJ-4AAwIKX80NjBWaMJ/exec"
