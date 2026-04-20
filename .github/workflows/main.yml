@@ -198,7 +198,7 @@ jobs:
                   filter_complex = (
                       "color=c=black:s=720x1280:r=40[bg];"
                       "[bg][0:v]overlay=x=30:y=140[bg1];"
-                      "[bg1][1:v]overlay=x=30:y=1040[outv]"
+                      "[bg1][1:v]overlay=x=30:y=650[outv]"
                   )
 
                   ffmpeg_cmd = [
