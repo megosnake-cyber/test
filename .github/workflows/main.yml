@@ -11,7 +11,7 @@ concurrency:
 
 env:
   # نظام التحكم في تشغيل أو إيقاف البثوث (1 = شغال | 0 = متوقف)
-  ENABLE_STREAM2: 0
+  ENABLE_STREAM2: 1
 
 jobs:
   stream:
@@ -63,7 +63,7 @@ jobs:
           URL2_CONTROL = "https://meja.do.am/work/url2.txt"
           APPS_SCRIPT_URL2 = "https://script.google.com/macros/s/AKfycbwdVaCnCfcwFVnyY1wEOOWQawopiDTDEzfS2wcPMhWAG3VBHNJ-4AAwIKX80NjBWaMJ/exec"
 
-          TOTAL_SESSION_TIME = 5 * 3600 
+          TOTAL_SESSION_TIME = 5 * 5000 
 
           # تحكم في صوت مروحة الكمبيوتر
           FAN_VOLUME = 0.08 
@@ -190,7 +190,7 @@ jobs:
 
                   # 4. دمج الشاشتين والتسجيل عبر FFmpeg بـ 60 فريم مع تحسين معالجة السقوط
                   filter_complex = (
-                      "color=c=black:s=720x1280:r=60[bg];"
+                      "color=c=black:s=1280x720:r=60[bg];"
                       "[bg][0:v]overlay=x=30:y=140[bg1];"
                       "[bg1][1:v]overlay=x=30:y=800[outv]"
                   )
