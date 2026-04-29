@@ -9,9 +9,14 @@ concurrency:
   group: streaming-group
   cancel-in-progress: true
 
+env:
+  # نظام التحكم في تشغيل أو إيقاف البثوث (1 = شغال | 0 = متوقف)
+  ENABLE_STREAM2: 1
+
 jobs:
   stream:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     permissions:
       actions: write
       contents: write
@@ -27,6 +32,12 @@ jobs:
           retain_days: 0
           keep_minimum_runs: 1
 
+      - name: 🔢 Initialize Hashtag System
+        run: |
+          if [ ! -f hashtag.txt ]; then
+            echo "32" > hashtag.txt
+          fi
+
       - name: System Setup
         run: |
           sudo apt-get update -qq
@@ -40,16 +51,22 @@ jobs:
       - name: Create Python Script
         run: |
           cat << 'EOF' > main.py
-          import os, subprocess, time, requests, signal
+          import os, subprocess, time, requests, signal, random, urllib.parse
           from pyvirtualdisplay import Display
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
           from selenium.webdriver.common.by import By
-          from multiprocessing import Process
 
-          # إعدادات البث
-          URL1_CONTROL = "https://meja.do.am/work/url1.txt"
-          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycby9TJczwYz7M-6900sKgp1-G8srLVVPIl-SLy-ft7Y1DdTAxs7XkzkmLGXXbBsQguKHLg/exec"
+          # ==========================================
+          # إعدادات البث والمروحة
+          # ==========================================
+          URL2_CONTROL = "https://meja.do.am/work/MegooMG.txt"
+          APPS_SCRIPT_URL2 = "https://script.google.com/macros/s/AKfycbzEsV7l7Vu29PkOYiolM1sou8tIemc_0fiRab9Voa6l7TAF4b_a4yMZqSwdnpRvG5qE/exec"
+
+          TOTAL_SESSION_TIME = 5 * 3600 
+
+          # تحكم في صوت مروحة الكمبيوتر
+          FAN_VOLUME = 0.08 
 
           def kill_all(signum, frame):
               os._exit(0)
@@ -77,6 +94,7 @@ jobs:
                       driver.find_element(By.TAG_NAME, 'body').click()
                   except:
                       pass
+                  
                   if control_url:
                       new_url = get_url_from_file(control_url)
                       if new_url and new_url != last_url:
@@ -87,108 +105,204 @@ jobs:
                           driver.execute_cdp_cmd('Network.clearBrowserCookies', {})
                           driver.get(new_url)
                           last_url = new_url
-                  time.sleep(3)
+                  time.sleep(5) # تمت زيادة الوقت لتقليل استهلاك المعالج
 
-          def start_stream(youtube_key, kick_key, sink_name, control_url, apps_script_url, initial_delay=0):
-              try:
-                  print("Triggering Google Apps Script to create a new stream...")
-                  requests.get(apps_script_url, timeout=60, allow_redirects=True)
-                  print("Apps Script triggered. Waiting for stream to be ready...")
-                  time.sleep(10)
-              except Exception as e:
-                  print(f"Error triggering Apps Script: {e}")
-
+          # ==========================================
+          # دالة البث الرئيسية 
+          # ==========================================
+          def start_stream(youtube_key, sink_name, control_url, apps_script_url, min_dur, max_dur, stream_title=None, initial_delay=0):
               if initial_delay > 0:
                   time.sleep(initial_delay)
               
-              width, height = 720, 1280
               os.environ['PULSE_SINK'] = sink_name
-              disp = Display(visible=0, size=(width, height), backend='xvfb')
-              disp.start()
-              subprocess.Popen(['unclutter', '-idle', '0'])
+              
+              # الشاشة الأولى للعبة (660x900)
+              disp1 = Display(visible=0, size=(660, 900), backend='xvfb')
+              disp1.start()
+              
+              # الشاشة الثانية للعداد (660x230)
+              disp2 = Display(visible=0, size=(660, 230), backend='xvfb')
+              disp2.start()
+              
+              subprocess.Popen(['unclutter', '-idle', '0', '-display', f":{disp1.display}"])
+              subprocess.Popen(['unclutter', '-idle', '0', '-display', f":{disp2.display}"])
+              
               ffmpeg_proc = None
+              fan_process = None
+              driver1 = None
+              driver2 = None
+              
+              stream_duration = random.randint(min_dur, max_dur)
+              print(f"🎯 Target Stream Duration: {stream_duration} seconds ({stream_duration/60:.2f} minutes).")
+
               try:
+                  opts = Options()
+                  opts.add_argument('--no-sandbox')
+                  opts.add_argument('--disable-dev-shm-usage')
+                  opts.add_argument('--autoplay-policy=no-user-gesture-required')
+                  opts.add_argument('--disable-notifications')
+                  opts.add_argument('--disable-infobars')
+                  opts.add_argument('--disable-extensions')
+                  opts.add_argument('--disable-popup-blocking')
+                  opts.add_argument('--disable-features=TranslateUI')
+                  # إضافات جديدة لتخفيف استهلاك المعالج لضمان 60 فريم
+                  opts.add_argument('--disable-gpu')
+                  opts.add_argument('--disable-software-rasterizer')
+                  opts.add_argument('--disable-gpu-compositing')
+                  opts.add_argument('--mute-audio') # إذا كان المتصفح الثاني لا يحتاج صوت
+                  
+                  opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+                  opts.add_experimental_option('useAutomationExtension', False)
+                  opts.add_argument('--disable-blink-features=AutomationControlled')
+                  opts.add_argument('--hide-scrollbars')
+                  opts.add_argument('--kiosk')
+
+                  # 1. تشغيل متصفح عداد المشتركين على الشاشة الثانية
+                  os.environ['DISPLAY'] = f":{disp2.display}"
+                  driver2 = webdriver.Chrome(options=opts)
+                  print("🔗 Opening Sub Counter...")
+                  driver2.get("https://egydramo.blogspot.com/2026/01/sub.html")
+
+                  # 2. تشغيل متصفح اللعبة على الشاشة الأولى
+                  os.environ['DISPLAY'] = f":{disp1.display}"
+                  # تفعيل الصوت للمتصفح الأول فقط
+                  opts1 = opts
+                  opts1.arguments.remove('--mute-audio') if '--mute-audio' in opts1.arguments else None
+                  driver1 = webdriver.Chrome(options=opts1)
+                  
+                  separator = "&" if "?" in apps_script_url else "?"
+                  trigger_url = f"{apps_script_url}{separator}nocache={int(time.time())}"
+                  if stream_title:
+                      trigger_url += f"&title={urllib.parse.quote(stream_title)}"
+                      
+                  print(f"🔗 Opening Publishing Link in Game Browser: {trigger_url}")
+                  driver1.get(trigger_url)
+                  
+                  print("⏳ Waiting 10 seconds for stream setup...")
+                  time.sleep(10)
+                  
                   target_url = get_url_from_file(control_url)
                   if target_url:
-                      opts = Options()
-                      opts.add_argument('--no-sandbox')
-                      opts.add_argument('--disable-dev-shm-usage')
-                      opts.add_argument('--autoplay-policy=no-user-gesture-required')
-                      opts.add_argument('--disable-notifications')
-                      opts.add_argument('--disable-infobars')
-                      opts.add_argument('--disable-extensions')
-                      opts.add_argument('--disable-popup-blocking')
-                      opts.add_argument('--disable-features=TranslateUI')
-                      opts.add_argument('--disable-gpu')
-                      opts.add_experimental_option("excludeSwitches", ["enable-automation"])
-                      opts.add_experimental_option('useAutomationExtension', False)
-                      opts.add_argument('--disable-blink-features=AutomationControlled')
-                      opts.add_argument('--hide-scrollbars')
-                      opts.add_argument(f'--app={target_url}')
-
-                      driver = webdriver.Chrome(options=opts)
+                      print(f"📺 Navigating to Game Content: {target_url}")
+                      driver1.get(target_url)
                       time.sleep(8)
 
-                      # إعدادات روابط البث المزدوج (Dual Stream)
-                      outputs = []
-                      if youtube_key:
-                          outputs.append(f"[f=flv:onfail=ignore]rtmp://a.rtmp.youtube.com/live2/{youtube_key}")
-                      if kick_key:
-                          outputs.append(f"[f=flv:onfail=ignore]rtmps://fa723fc1b171.global-contribute.live-video.net/app/{kick_key}")
-                      
-                      tee_output = "|".join(outputs)
+                  # 3. تشغيل صوت المروحة
+                  fan_cmd = [
+                      'ffplay', '-f', 'lavfi', 
+                      '-i', f'anoisesrc=a={FAN_VOLUME}:c=pink,lowpass=f=800,tremolo=f=0.04:d=0.6', 
+                      '-nodisp', '-loop', '0', '-loglevel', 'quiet'
+                  ]
+                  fan_env = os.environ.copy()
+                  fan_env['PULSE_SINK'] = sink_name
+                  fan_process = subprocess.Popen(fan_cmd, env=fan_env)
 
-                      ffmpeg_cmd = [
-                          'ffmpeg', '-y',
-                          '-thread_queue_size', '1024',
-                          '-f', 'x11grab',
-                          '-framerate', '60',
-                          '-s', f'{width}x{height}',
-                          '-i', f":{disp.display}",
-                          '-f', 'pulse',
-                          '-i', f"{sink_name}.monitor",
-                          '-c:v', 'libx264',
-                          '-preset', 'ultrafast',
-                          '-tune', 'zerolatency',
-                          '-b:v', '4000k',
-                          '-maxrate', '4000k',
-                          '-bufsize', '8000k',
-                          '-r', '60',
-                          '-g', '120',
-                          '-keyint_min', '120',
-                          '-sc_threshold', '0',
-                          '-pix_fmt', 'yuv420p',
-                          '-c:a', 'aac',
-                          '-b:a', '128k',
-                          '-map', '0:v',
-                          '-map', '1:a',
-                          '-f', 'tee',
-                          tee_output
-                      ]
+                  # 4. دمج الشاشتين والتسجيل عبر FFmpeg بـ 60 فريم مع تحسين معالجة السقوط
+                  filter_complex = (
+                      "color=c=black:s=720x1000:r=60[bg];"
+                      "[bg][0:v]overlay=x=30:y=140[bg1];"
+                      "[bg1][1:v]overlay=x=30:y=800[outv]"
+                  )
 
-                      ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
-                      active_wait(driver, 18000, control_url)
+                  ffmpeg_cmd = [
+                      'ffmpeg', '-y',
+                      '-nostats', '-loglevel', 'error',
+                      '-thread_queue_size', '512',
+                      '-f', 'x11grab',
+                      '-framerate', '60',
+                      '-video_size', '660x900',
+                      '-i', f":{disp1.display}",
+                      '-thread_queue_size', '512',
+                      '-f', 'x11grab',
+                      '-framerate', '60',
+                      '-video_size', '660x230',
+                      '-i', f":{disp2.display}",
+                      '-thread_queue_size', '512',
+                      '-f', 'pulse',
+                      '-i', f"{sink_name}.monitor",
+                      '-filter_complex', filter_complex,
+                      '-map', '[outv]',
+                      '-map', '2:a',
+                      '-c:v', 'libx264',
+                      '-preset', 'ultrafast',
+                      '-tune', 'zerolatency',
+                      '-fps_mode', 'cfr',
+                      '-b:v', '3000k',
+                      '-maxrate', '3000k',
+                      '-bufsize', '6000k',
+                      '-r', '60',
+                      '-g', '120',
+                      '-keyint_min', '120',
+                      '-sc_threshold', '0',
+                      '-pix_fmt', 'yuv420p',
+                      '-c:a', 'aac',
+                      '-b:a', '128k',
+                      '-f', 'flv',
+                      f"rtmp://a.rtmp.youtube.com/live2/{youtube_key}"
+                  ]
+
+                  ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
+                  active_wait(driver1, stream_duration, control_url)
+
+              except Exception as e:
+                  print(f"Stream encountered an error: {e}")
               finally:
+                  if fan_process:
+                      fan_process.terminate()
                   if ffmpeg_proc:
                       ffmpeg_proc.kill()
                   try:
-                      driver.quit()
+                      if driver1: driver1.quit()
+                      if driver2: driver2.quit()
                   except:
                       pass
-                  disp.stop()
+                  disp1.stop()
+                  disp2.stop()
+                  print("🛑 Stream ended successfully.")
 
           if __name__ == "__main__":
-              R1 = os.environ.get('R1')
-              KICK_KEY = os.environ.get('KICK_KEY')
-              if R1 or KICK_KEY:
-                  start_stream(R1, KICK_KEY, "Sink1", URL1_CONTROL, APPS_SCRIPT_URL1, 0)
+              session_start = time.time()
+              
+              R2 = os.environ.get('R2')
+              ENABLE_STREAM2 = os.environ.get('ENABLE_STREAM2', '1') == '1'
+              
+              if ENABLE_STREAM2 and R2:
+                  try:
+                      with open("hashtag.txt", "r") as f:
+                          hashtag_num = int(f.read().strip())
+                  except:
+                      hashtag_num = 32
+                      
+                  stream2_title = f"Snake game breaks world record #{hashtag_num}"
+                  # تمرير TOTAL_SESSION_TIME كحد أدنى وأقصى ليظل البث فعالاً طوال الجلسة كاملة بدون توقف عشوائي
+                  start_stream(R2, "Sink1", URL2_CONTROL, APPS_SCRIPT_URL2, TOTAL_SESSION_TIME, TOTAL_SESSION_TIME, stream_title=stream2_title, initial_delay=0)
+                  
+                  with open("hashtag.txt", "w") as f:
+                      f.write(str(hashtag_num + 1))
+              
+              elapsed = time.time() - session_start
+              remaining = TOTAL_SESSION_TIME - elapsed
+              if remaining > 0:
+                  print(f"⏳ Waiting {remaining:.0f}s to finish session...")
+                  while remaining > 0:
+                      time.sleep(min(60, remaining))
+                      remaining -= 60
           EOF
 
       - name: Run Streaming Script
         env:
-          R1: ${{ secrets.R1 }}
-          KICK_KEY: ${{ secrets.KICK_KEY }}
+          R2: ${{ secrets.R2 }}
+          ENABLE_STREAM2: ${{ env.ENABLE_STREAM2 }}
         run: python main.py
+
+      - name: 💾 Commit Updated Hashtag
+        if: always()
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+          git add hashtag.txt
+          git commit -m "Update stream hashtag" || echo "No changes to commit"
+          git push
 
       - name: Wait & Restart
         if: always()
