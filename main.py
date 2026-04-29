@@ -49,7 +49,7 @@ jobs:
 
           # إعدادات البث
           URL1_CONTROL = "https://meja.do.am/work/url1.txt"
-          APPS_SCRIPT_URL1 = "https://script.google.com/macros/s/AKfycby9TJczwYz7M-6900sKgp1-G8srLVVPIl-SLy-ft7Y1DdTAxs7XkzkmLGXXbBsQguKHLg/exec"
+          APPS_SCRIPT_URL1 = ""
 
           def kill_all(signum, frame):
               os._exit(0)
@@ -167,7 +167,7 @@ jobs:
                       ]
 
                       ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
-                      active_wait(driver, 3600, control_url)
+                      active_wait(driver, 18000, control_url)
               finally:
                   if ffmpeg_proc:
                       ffmpeg_proc.kill()
