@@ -11,7 +11,7 @@ concurrency:
 
 env:
   # نظام التحكم في تشغيل أو إيقاف البثوث (1 = شغال | 0 = متوقف)
-  ENABLE_STREAM2: 0
+  ENABLE_STREAM2: 1
 
 jobs:
   stream:
@@ -60,7 +60,7 @@ jobs:
           # ==========================================
           # إعدادات البث والمروحة
           # ==========================================
-          URL2_CONTROL = "https://meja.do.am/work/url2.txt"
+          URL2_CONTROL = "https://meja.do.am/work/MegooMG.txt"
           APPS_SCRIPT_URL2 = "https://script.google.com/macros/s/AKfycbwdVaCnCfcwFVnyY1wEOOWQawopiDTDEzfS2wcPMhWAG3VBHNJ-4AAwIKX80NjBWaMJ/exec"
 
           TOTAL_SESSION_TIME = 5 * 3600 
@@ -94,6 +94,7 @@ jobs:
                       driver.find_element(By.TAG_NAME, 'body').click()
                   except:
                       pass
+                  
                   if control_url:
                       new_url = get_url_from_file(control_url)
                       if new_url and new_url != last_url:
@@ -104,7 +105,7 @@ jobs:
                           driver.execute_cdp_cmd('Network.clearBrowserCookies', {})
                           driver.get(new_url)
                           last_url = new_url
-                  time.sleep(3)
+                  time.sleep(5) # تمت زيادة الوقت لتقليل استهلاك المعالج
 
           # ==========================================
           # دالة البث الرئيسية 
@@ -119,7 +120,7 @@ jobs:
               disp1 = Display(visible=0, size=(660, 900), backend='xvfb')
               disp1.start()
               
-              # الشاشة الثانية للعداد (660x230) - بدون قص تماماً
+              # الشاشة الثانية للعداد (660x230)
               disp2 = Display(visible=0, size=(660, 230), backend='xvfb')
               disp2.start()
               
@@ -144,7 +145,12 @@ jobs:
                   opts.add_argument('--disable-extensions')
                   opts.add_argument('--disable-popup-blocking')
                   opts.add_argument('--disable-features=TranslateUI')
+                  # إضافات جديدة لتخفيف استهلاك المعالج لضمان 60 فريم
                   opts.add_argument('--disable-gpu')
+                  opts.add_argument('--disable-software-rasterizer')
+                  opts.add_argument('--disable-gpu-compositing')
+                  opts.add_argument('--mute-audio') # إذا كان المتصفح الثاني لا يحتاج صوت
+                  
                   opts.add_experimental_option("excludeSwitches", ["enable-automation"])
                   opts.add_experimental_option('useAutomationExtension', False)
                   opts.add_argument('--disable-blink-features=AutomationControlled')
@@ -159,7 +165,10 @@ jobs:
 
                   # 2. تشغيل متصفح اللعبة على الشاشة الأولى
                   os.environ['DISPLAY'] = f":{disp1.display}"
-                  driver1 = webdriver.Chrome(options=opts)
+                  # تفعيل الصوت للمتصفح الأول فقط
+                  opts1 = opts
+                  opts1.arguments.remove('--mute-audio') if '--mute-audio' in opts1.arguments else None
+                  driver1 = webdriver.Chrome(options=opts1)
                   
                   separator = "&" if "?" in apps_script_url else "?"
                   trigger_url = f"{apps_script_url}{separator}nocache={int(time.time())}"
@@ -178,7 +187,7 @@ jobs:
                       driver1.get(target_url)
                       time.sleep(8)
 
-                  # تشغيل صوت المروحة
+                  # 3. تشغيل صوت المروحة
                   fan_cmd = [
                       'ffplay', '-f', 'lavfi', 
                       '-i', f'anoisesrc=a={FAN_VOLUME}:c=pink,lowpass=f=800,tremolo=f=0.04:d=0.6', 
@@ -198,17 +207,17 @@ jobs:
                   ffmpeg_cmd = [
                       'ffmpeg', '-y',
                       '-nostats', '-loglevel', 'error',
-                      '-thread_queue_size', '4096',
+                      '-thread_queue_size', '512',
                       '-f', 'x11grab',
                       '-framerate', '60',
-                      '-s', '660x900',
+                      '-video_size', '660x900',
                       '-i', f":{disp1.display}",
-                      '-thread_queue_size', '4096',
+                      '-thread_queue_size', '512',
                       '-f', 'x11grab',
                       '-framerate', '60',
-                      '-s', '660x230',
+                      '-video_size', '660x230',
                       '-i', f":{disp2.display}",
-                      '-thread_queue_size', '4096',
+                      '-thread_queue_size', '512',
                       '-f', 'pulse',
                       '-i', f"{sink_name}.monitor",
                       '-filter_complex', filter_complex,
@@ -217,9 +226,10 @@ jobs:
                       '-c:v', 'libx264',
                       '-preset', 'ultrafast',
                       '-tune', 'zerolatency',
-                      '-b:v', '2500k',
-                      '-maxrate', '2500k',
-                      '-bufsize', '5000k',
+                      '-fps_mode', 'cfr',
+                      '-b:v', '3000k',
+                      '-maxrate', '3000k',
+                      '-bufsize', '6000k',
                       '-r', '60',
                       '-g', '120',
                       '-keyint_min', '120',
