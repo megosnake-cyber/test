@@ -69,8 +69,8 @@ jobs:
           # قم بتعديل الروابط من 2 إلى 5 لتناسب كل بث كما طلبت
           APPS_SCRIPTS = {
               1: "https://script.google.com/macros/s/AKfycbyV2MqrIlEYB7MHsPHWK5TiId5Pb5S7eRoWmHyt68J8KClaPI9nc3IWc6cVaJuNqS9J/exec",
-              2: "https://script.google.com/macros/s/AKfycbzEsV7l7Vu29PkOYiolM1sou8tIemc_0fiRab9Voa6l7TAF4b_a4yMZqSwdnpRvG5qE/exec2",
-              3: "https://script.google.com/macros/s/AKfycbzEsV7l7Vu29PkOYiolM1sou8tIemc_0fiRab9Voa6l7TAF4b_a4yMZqSwdnpRvG5qE/exec3",
+              2: "https://script.google.com/macros/s/AKfycbwwIHi7mF-ftkiwt4uxGgE16_igsQs5xSdPeUn5vytaivsB13uaSlg0uHBR0HNtzOKy/exec",
+              3: "https://script.google.com/macros/s/AKfycbzPVHlK8E9-QJB2WxHvTWTbsFKC4f_rzU0l5zdoVxbahwjbnI2RqFktAQjKJvsOnSXpbQ/exec",
               4: "https://script.google.com/macros/s/AKfycbzEsV7l7Vu29PkOYiolM1sou8tIemc_0fiRab9Voa6l7TAF4b_a4yMZqSwdnpRvG5qE/exec4",
               5: "https://script.google.com/macros/s/AKfycbzEsV7l7Vu29PkOYiolM1sou8tIemc_0fiRab9Voa6l7TAF4b_a4yMZqSwdnpRvG5qE/exec5"
           }
