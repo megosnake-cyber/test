@@ -61,7 +61,7 @@ jobs:
           # إعدادات البث والمروحة
           # ==========================================
           URL2_CONTROL = "https://meja.do.am/work/MegooMG.txt"
-          APPS_SCRIPT_URL2 = ""
+          APPS_SCRIPT_URL2 = "https://script.google.com/macros/s/AKfycbzEsV7l7Vu29PkOYiolM1sou8tIemc_0fiRab9Voa6l7TAF4b_a4yMZqSwdnpRvG5qE/exec"
 
           TOTAL_SESSION_TIME = 5 * 3600 
 
