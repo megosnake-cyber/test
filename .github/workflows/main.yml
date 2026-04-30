@@ -194,7 +194,7 @@ jobs:
                       '-thread_queue_size', '512',
                       '-f', 'x11grab',
                       '-framerate', '60',
-                      '-video_size', '720x1280',
+                      '-video_size', '850x1280',
                       '-i', f":{disp1.display}",
                       '-thread_queue_size', '512',
                       '-f', 'pulse',
