@@ -137,8 +137,8 @@ jobs:
           def start_stream(youtube_key, sink_name):
               os.environ['PULSE_SINK'] = sink_name
               
-              # الشاشة الخاصة باللعبة بمقاس 1280x720 بالعرض
-              disp1 = Display(visible=0, size=(1280, 720), backend='xvfb')
+              # الشاشة الخاصة باللعبة بمقاس 720x1280 بالطول
+              disp1 = Display(visible=0, size=(720, 1280), backend='xvfb')
               disp1.start()
               
               subprocess.Popen(['unclutter', '-idle', '0', '-display', f":{disp1.display}"])
@@ -161,9 +161,9 @@ jobs:
                   opts.add_argument('--disable-gpu')
                   opts.add_argument('--disable-software-rasterizer')
                   
-                  # أمر تصغير محتوى المتصفح بنسبة 80% ليحتوي اللعبة بالكامل
+                  # أمر تصغير محتوى المتصفح بنسبة 80% ليحتوي اللعبة بالكامل وتحديد حجم النافذة بالطول
                   opts.add_argument('--force-device-scale-factor=0.8')
-                  opts.add_argument('--window-size=1280,720')
+                  opts.add_argument('--window-size=720,1280')
                   
                   opts.add_experimental_option("excludeSwitches", ["enable-automation"])
                   opts.add_experimental_option('useAutomationExtension', False)
@@ -191,20 +191,21 @@ jobs:
                   fan_env['PULSE_SINK'] = sink_name
                   fan_process = subprocess.Popen(fan_cmd, env=fan_env)
 
-                  # التسجيل المباشر للشاشة بدقة 1280x720 بالعرض
+                  # التسجيل المباشر للشاشة بدقة 720x1280 وتحويله إلى 1280x720 مع إضافة جوانب سوداء
                   ffmpeg_cmd = [
                       'ffmpeg', '-y',
                       '-nostats', '-loglevel', 'error',
                       '-thread_queue_size', '512',
                       '-f', 'x11grab',
                       '-framerate', '60',
-                      '-video_size', '1280x720',
+                      '-video_size', '720x1280',
                       '-i', f":{disp1.display}",
                       '-thread_queue_size', '512',
                       '-f', 'pulse',
                       '-i', f"{sink_name}.monitor",
                       '-map', '0:v',
                       '-map', '1:a',
+                      '-vf', 'scale=-1:720,pad=1280:720:(ow-iw)/2:(oh-ih)/2:black',
                       '-c:v', 'libx264',
                       '-preset', 'ultrafast',
                       '-tune', 'zerolatency',
