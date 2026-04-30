@@ -1,17 +1,15 @@
-name: Perpetual Dual Stream
+name: Perpetual Single Stream
 
 on:
   workflow_dispatch:
   repository_dispatch:
     types: [restart-session]
 
-concurrency:
-  group: streaming-group
-  cancel-in-progress: true
+# تم إزالة قسم concurrency عمداً للسماح للجلسة الجديدة بالبدء والتحضير 
+# قبل أن تنتهي الجلسة الحالية، مما يضمن عدم انقطاع البث على يوتيوب.
 
 env:
-  # نظام التحكم في تشغيل أو إيقاف البثوث (1 = شغال | 0 = متوقف)
-  ENABLE_STREAM2: 1
+  ENABLE_STREAM: 1
 
 jobs:
   stream:
@@ -32,15 +30,6 @@ jobs:
           retain_days: 0
           keep_minimum_runs: 1
 
-      - name: 🔢 Initialize System States
-        run: |
-          if [ ! -f hashtag.txt ]; then
-            echo "32" > hashtag.txt
-          fi
-          if [ ! -f current_stream.txt ]; then
-            echo "1" > current_stream.txt
-          fi
-
       - name: System Setup
         run: |
           sudo apt-get update -qq
@@ -54,7 +43,7 @@ jobs:
       - name: Create Python Script
         run: |
           cat << 'EOF' > main.py
-          import os, subprocess, time, requests, signal, random, urllib.parse, sys
+          import os, subprocess, time, requests, signal, sys
           from pyvirtualdisplay import Display
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
@@ -65,19 +54,8 @@ jobs:
           # ==========================================
           MASTER_CONTROL_URL = "https://meja.do.am/work/lives.txt"
 
-          # قائمة روابط النشر (Apps Script) الخاصة بكل بث
-          # قم بتعديل الروابط من 2 إلى 5 لتناسب كل بث كما طلبت
-          APPS_SCRIPTS = {
-              1: "https://script.google.com/macros/s/AKfycbyV2MqrIlEYB7MHsPHWK5TiId5Pb5S7eRoWmHyt68J8KClaPI9nc3IWc6cVaJuNqS9J/exec",
-              2: "https://script.google.com/macros/s/AKfycbwwIHi7mF-ftkiwt4uxGgE16_igsQs5xSdPeUn5vytaivsB13uaSlg0uHBR0HNtzOKy/exec",
-              3: "https://script.google.com/macros/s/AKfycbzPVHlK8E9-QJB2WxHvTWTbsFKC4f_rzU0l5zdoVxbahwjbnI2RqFktAQjKJvsOnSXpbQ/exec",
-              4: "https://script.google.com/macros/s/AKfycbzVqqI3tF_fyHhGFOEms83TSORum6pmRe1Oyjlvp-2-WPRiBfOfv2RLN9msKy2Mh4mV/exec",
-              5: "https://script.google.com/macros/s/AKfycbwaSViIRYyNuddIfmuomgg89v-kCUsF8ym7NWXAlb83Gu-nKPvG_IsxOW8SSD56RG5vIA/exec"
-          }
-
-          TOTAL_SESSION_TIME = 5 * 3600 
-
-          # تحكم في صوت مروحة الكمبيوتر
+          TOTAL_SESSION_TIME = 5 * 3600  # 5 ساعات
+          OVERLAP_TIME = 90  # بدء الجلسة الجديدة قبل انتهاء الحالية بـ 90 ثانية
           FAN_VOLUME = 0.08 
 
           def kill_all(signum, frame):
@@ -86,49 +64,69 @@ jobs:
           signal.signal(signal.SIGTERM, kill_all)
           signal.signal(signal.SIGINT, kill_all)
 
-          def get_stream_config(index):
+          def get_stream_config():
               try:
                   res = requests.get(f"{MASTER_CONTROL_URL}?t={int(time.time())}", timeout=10)
                   lines = [l.strip() for l in res.text.strip().split('\n') if l.strip()]
-                  if index - 1 < len(lines):
-                      parts = lines[index - 1].split()
+                  if len(lines) > 0:
+                      parts = lines[0].split()
                       if len(parts) >= 2:
-                          return parts[0], parts[1] # إرجاع الرابط، وحالة البث (0 أو 1)
+                          return parts[0], parts[1] # إرجاع الرابط وحالة البث (0 أو 1)
               except Exception as e:
                   print(f"Error reading control file: {e}")
               return None, None
 
-          def active_wait(driver, duration, stream_index):
+          def trigger_new_session():
+              print("🚀 Triggering new session to overlap and ensure continuous 24/7 stream...")
+              url = f"https://api.github.com/repos/{os.environ['GITHUB_REPO']}/dispatches"
+              headers = {
+                  "Authorization": f"token {os.environ['GITHUB_TOKEN']}",
+                  "Accept": "application/vnd.github.v3+json"
+              }
+              data = {"event_type": "restart-session"}
+              try:
+                  requests.post(url, headers=headers, json=data)
+                  print("✅ New GitHub Action triggered successfully.")
+              except Exception as e:
+                  print(f"❌ Error triggering new session: {e}")
+
+          def active_wait(driver, duration):
               start_time = time.time()
               last_check_time = 0
               last_url = driver.current_url
+              triggered_next = False
               
               while time.time() - start_time < duration:
+                  elapsed = time.time() - start_time
+                  
+                  # تشغيل الجلسة القادمة قبل إغلاق الحالية بـ 90 ثانية (Overlap)
+                  if not triggered_next and elapsed >= (duration - OVERLAP_TIME):
+                      trigger_new_session()
+                      triggered_next = True
+                      
                   try:
                       driver.find_element(By.TAG_NAME, 'body').click()
                   except:
                       pass
                   
                   current_time = time.time()
-                  if current_time - last_check_time > 10: # فحص حالة البث كل 10 ثواني
+                  if current_time - last_check_time > 10: 
                       last_check_time = current_time
-                      new_url, status = get_stream_config(stream_index)
+                      new_url, status = get_stream_config()
                       
                       if status == "0":
-                          print(f"🛑 Control file requested STOP (status=0) for stream {stream_index}. Ending stream...")
-                          break # إنهاء حلقة الانتظار لإيقاف البث فوراً
+                          print("🛑 Control file requested STOP (status=0). Ending stream...")
+                          break 
                       
                       if new_url and status == "1" and new_url != last_url:
                           try:
                               driver.delete_all_cookies()
                               driver.execute_script("window.localStorage.clear();")
                               driver.execute_script("window.sessionStorage.clear();")
-                              driver.execute_cdp_cmd('Network.clearBrowserCache', {})
-                              driver.execute_cdp_cmd('Network.clearBrowserCookies', {})
                               driver.get(new_url)
                               last_url = new_url
                               print(f"🔄 URL updated dynamically to: {new_url}")
-                          except Exception as e:
+                          except Exception:
                               pass
                   
                   time.sleep(5)
@@ -136,14 +134,11 @@ jobs:
           # ==========================================
           # دالة البث الرئيسية 
           # ==========================================
-          def start_stream(youtube_key, sink_name, stream_index, apps_script_url, min_dur, max_dur, stream_title=None, initial_delay=0):
-              if initial_delay > 0:
-                  time.sleep(initial_delay)
-              
+          def start_stream(youtube_key, sink_name):
               os.environ['PULSE_SINK'] = sink_name
               
               # الشاشة الخاصة باللعبة بمقاس 720x1280 بالطول
-              disp1 = Display(visible=0, size=(720, 1280), backend='xvfb')
+              disp1 = Display(visible=0, size=(1280, 850), backend='xvfb')
               disp1.start()
               
               subprocess.Popen(['unclutter', '-idle', '0', '-display', f":{disp1.display}"])
@@ -152,8 +147,7 @@ jobs:
               fan_process = None
               driver1 = None
               
-              stream_duration = random.randint(min_dur, max_dur)
-              print(f"🎯 Target Stream Duration: {stream_duration} seconds ({stream_duration/60:.2f} minutes).")
+              print(f"🎯 Target Stream Duration: {TOTAL_SESSION_TIME} seconds ({TOTAL_SESSION_TIME/3600:.2f} hours).")
 
               try:
                   opts = Options()
@@ -164,10 +158,8 @@ jobs:
                   opts.add_argument('--disable-infobars')
                   opts.add_argument('--disable-extensions')
                   opts.add_argument('--disable-popup-blocking')
-                  opts.add_argument('--disable-features=TranslateUI')
                   opts.add_argument('--disable-gpu')
                   opts.add_argument('--disable-software-rasterizer')
-                  opts.add_argument('--disable-gpu-compositing')
                   
                   opts.add_experimental_option("excludeSwitches", ["enable-automation"])
                   opts.add_experimental_option('useAutomationExtension', False)
@@ -175,24 +167,13 @@ jobs:
                   opts.add_argument('--hide-scrollbars')
                   opts.add_argument('--kiosk')
 
-                  # تشغيل متصفح اللعبة
+                  # تشغيل متصفح اللعبة مباشرة دون المرور برابط النشر
                   os.environ['DISPLAY'] = f":{disp1.display}"
                   driver1 = webdriver.Chrome(options=opts)
                   
-                  separator = "&" if "?" in apps_script_url else "?"
-                  trigger_url = f"{apps_script_url}{separator}nocache={int(time.time())}"
-                  if stream_title:
-                      trigger_url += f"&title={urllib.parse.quote(stream_title)}"
-                      
-                  print(f"🔗 Opening Publishing Link in Game Browser: {trigger_url}")
-                  driver1.get(trigger_url)
-                  
-                  print("⏳ Waiting 10 seconds for stream setup...")
-                  time.sleep(10)
-                  
-                  target_url, status = get_stream_config(stream_index)
+                  target_url, status = get_stream_config()
                   if target_url:
-                      print(f"📺 Navigating to Game Content: {target_url}")
+                      print(f"📺 Navigating directly to Game Content: {target_url}")
                       driver1.get(target_url)
                       time.sleep(8)
 
@@ -238,8 +219,9 @@ jobs:
                       f"rtmp://a.rtmp.youtube.com/live2/{youtube_key}"
                   ]
 
+                  print("🎬 Starting FFmpeg Stream...")
                   ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
-                  active_wait(driver1, stream_duration, stream_index)
+                  active_wait(driver1, TOTAL_SESSION_TIME)
 
               except Exception as e:
                   print(f"Stream encountered an error: {e}")
@@ -256,105 +238,22 @@ jobs:
                   print("🛑 Stream ended successfully.")
 
           if __name__ == "__main__":
-              session_start = time.time()
-              ENABLE_STREAM2 = os.environ.get('ENABLE_STREAM2', '1') == '1'
+              current_key = os.environ.get('R1')
               
-              # قراءة رقم البث الحالي (من 1 إلى 5)
-              try:
-                  with open("current_stream.txt", "r") as f:
-                      stream_index = int(f.read().strip())
-              except:
-                  stream_index = 1
-                  
-              # التأكد من أن الرقم في النطاق الصحيح
-              if stream_index < 1 or stream_index > 5:
-                  stream_index = 1
-                  
-              current_key = os.environ.get(f'R{stream_index}')
-              apps_script_url = APPS_SCRIPTS.get(stream_index, APPS_SCRIPTS[1])
-              
-              if ENABLE_STREAM2 and current_key:
-                  try:
-                      with open("hashtag.txt", "r") as f:
-                          hashtag_num = int(f.read().strip())
-                  except:
-                      hashtag_num = 32
-                      
-                  stream_title = f"Snake game breaks world record #{hashtag_num}"
-                  
-                  # فحص حالة البث من الملف قبل البدء
-                  _, init_status = get_stream_config(stream_index)
-                  
+              if current_key:
+                  _, init_status = get_stream_config()
                   if init_status == "0":
-                      print(f"⚠️ Stream R{stream_index} is set to 0 in control file. Skipping to next stream...")
+                      print("⚠️ Stream R1 is set to 0 in control file. Exiting...")
                   else:
-                      print(f"🚀 Starting Stream Session for R{stream_index}...")
-                      start_stream(current_key, "Sink1", stream_index, apps_script_url, TOTAL_SESSION_TIME, TOTAL_SESSION_TIME, stream_title=stream_title, initial_delay=0)
-                      
-                      # حفظ الهاشتاج فقط إذا تم تشغيل البث
-                      with open("hashtag.txt", "w") as f:
-                          f.write(str(hashtag_num + 1))
-                          
-                  # التبديل للبث التالي للجلسة القادمة (سواء اشتغل البث أو تم تخطيه)
-                  next_index = stream_index + 1 if stream_index < 5 else 1
-                  with open("current_stream.txt", "w") as f:
-                      f.write(str(next_index))
+                      print("🚀 Starting Continuous Stream Session for R1...")
+                      start_stream(current_key, "Sink1")
               else:
-                  print(f"⚠️ Stream key for R{stream_index} is missing or stream is disabled.")
-                  next_index = stream_index + 1 if stream_index < 5 else 1
-                  with open("current_stream.txt", "w") as f:
-                      f.write(str(next_index))
-              
-              # انتظار الوقت المتبقي فقط إذا لم يتم تخطي البث
-              _, final_status = get_stream_config(stream_index)
-              if final_status != "0":
-                  elapsed = time.time() - session_start
-                  remaining = TOTAL_SESSION_TIME - elapsed
-                  if remaining > 0:
-                      print(f"⏳ Waiting {remaining:.0f}s to finish session...")
-                      while remaining > 0:
-                          time.sleep(min(60, remaining))
-                          remaining -= 60
+                  print("⚠️ Stream key for R1 is missing.")
           EOF
 
       - name: Run Streaming Script
         env:
           R1: ${{ secrets.R1 }}
-          R2: ${{ secrets.R2 }}
-          R3: ${{ secrets.R3 }}
-          R4: ${{ secrets.R4 }}
-          R5: ${{ secrets.R5 }}
-          ENABLE_STREAM2: ${{ env.ENABLE_STREAM2 }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # لإرسال أمر تشغيل الجلسة الجديدة من داخل البايثون
+          GITHUB_REPO: ${{ github.repository }}
         run: python main.py
-
-      - name: 💾 Commit Updated State Files
-        if: always()
-        run: |
-          git config --global user.name "GitHub Actions Bot"
-          git config --global user.email "actions@github.com"
-          git add hashtag.txt current_stream.txt
-          git commit -m "Update stream state and hashtag" || echo "No changes to commit"
-          git push
-
-      - name: Wait & Restart
-        if: always()
-        run: |
-          python - <<'PYTHON'
-          import time, signal, sys
-          stop = False
-          def handler(signum, frame):
-              global stop
-              stop = True
-          signal.signal(signal.SIGTERM, handler)
-          signal.signal(signal.SIGINT, handler)
-          wait_seconds = 60
-          for _ in range(0, wait_seconds):
-              if stop: sys.exit(0)
-              time.sleep(1)
-          PYTHON
-
-          curl -X POST \
-            -H "Authorization: token ${{ github.token }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/${{ github.repository }}/dispatches \
-            -d '{"event_type": "restart-session"}'
