@@ -85,8 +85,11 @@ jobs:
               }
               data = {"event_type": "restart-session"}
               try:
-                  requests.post(url, headers=headers, json=data)
-                  print("✅ New GitHub Action triggered successfully.")
+                  response = requests.post(url, headers=headers, json=data)
+                  if response.status_code == 204:
+                      print("✅ New GitHub Action triggered successfully.")
+                  else:
+                      print(f"⚠️ Trigger response code: {response.status_code}")
               except Exception as e:
                   print(f"❌ Error triggering new session: {e}")
 
@@ -234,7 +237,12 @@ jobs:
                   if fan_process:
                       fan_process.terminate()
                   if ffmpeg_proc:
-                      ffmpeg_proc.kill()
+                      # التعديل الأهم: إغلاق البث بسلام لمنع خطأ Broken Pipe و End of file
+                      ffmpeg_proc.terminate()
+                      try:
+                          ffmpeg_proc.wait(timeout=5)
+                      except subprocess.TimeoutExpired:
+                          ffmpeg_proc.kill()
                   try:
                       if driver1: driver1.quit()
                   except:
