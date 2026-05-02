@@ -53,6 +53,7 @@ jobs:
           # إعدادات البث والمروحة وروابط التحكم
           # ==========================================
           MASTER_CONTROL_URL = "https://meja.do.am/work/lives.txt"
+          TARGET_STREAM_URL = "https://meja.do.am/live/live2.html"
 
           TOTAL_SESSION_TIME = 5 * 3600  # 5 ساعات
           OVERLAP_TIME = 90  # بدء الجلسة الجديدة قبل انتهاء الحالية بـ 90 ثانية
@@ -64,17 +65,17 @@ jobs:
           signal.signal(signal.SIGTERM, kill_all)
           signal.signal(signal.SIGINT, kill_all)
 
-          def get_stream_config():
+          def get_stream_status():
               try:
                   res = requests.get(f"{MASTER_CONTROL_URL}?t={int(time.time())}", timeout=10)
                   lines = [l.strip() for l in res.text.strip().split('\n') if l.strip()]
                   if len(lines) > 0:
                       parts = lines[0].split()
                       if len(parts) >= 2:
-                          return parts[0], parts[1] # إرجاع الرابط وحالة البث (0 أو 1)
+                          return parts[1] # إرجاع حالة البث (0 أو 1)
               except Exception as e:
                   print(f"Error reading control file: {e}")
-              return None, None
+              return "1" # الافتراضي هو التشغيل
 
           def trigger_new_session():
               print("🚀 Triggering new session to overlap and ensure continuous 24/7 stream...")
@@ -96,7 +97,6 @@ jobs:
           def active_wait(driver, duration):
               start_time = time.time()
               last_check_time = 0
-              last_url = driver.current_url
               triggered_next = False
               
               while time.time() - start_time < duration:
@@ -115,22 +115,11 @@ jobs:
                   current_time = time.time()
                   if current_time - last_check_time > 10: 
                       last_check_time = current_time
-                      new_url, status = get_stream_config()
+                      status = get_stream_status()
                       
                       if status == "0":
                           print("🛑 Control file requested STOP (status=0). Ending stream...")
                           break 
-                      
-                      if new_url and status == "1" and new_url != last_url:
-                          try:
-                              driver.delete_all_cookies()
-                              driver.execute_script("window.localStorage.clear();")
-                              driver.execute_script("window.sessionStorage.clear();")
-                              driver.get(new_url)
-                              last_url = new_url
-                              print(f"🔄 URL updated dynamically to: {new_url}")
-                          except Exception:
-                              pass
                   
                   time.sleep(5)
 
@@ -174,15 +163,13 @@ jobs:
                   opts.add_argument('--hide-scrollbars')
                   opts.add_argument('--kiosk')
 
-                  # تشغيل متصفح اللعبة مباشرة دون المرور برابط النشر
+                  # تشغيل متصفح اللعبة
                   os.environ['DISPLAY'] = f":{disp1.display}"
                   driver1 = webdriver.Chrome(options=opts)
                   
-                  target_url, status = get_stream_config()
-                  if target_url:
-                      print(f"📺 Navigating directly to Game Content: {target_url}")
-                      driver1.get(target_url)
-                      time.sleep(8)
+                  print(f"📺 Navigating directly to Game Content: {TARGET_STREAM_URL}")
+                  driver1.get(TARGET_STREAM_URL)
+                  time.sleep(8)
 
                   # تشغيل صوت المروحة
                   fan_cmd = [
@@ -194,7 +181,7 @@ jobs:
                   fan_env['PULSE_SINK'] = sink_name
                   fan_process = subprocess.Popen(fan_cmd, env=fan_env)
 
-                  # التسجيل المباشر للشاشة بدقة 720x1280 وتحويله إلى 1280x720 مع إضافة جوانب سوداء
+                  # التسجيل المباشر للشاشة بدقة 720x1280 (بالطول) بدون حواف سوداء
                   ffmpeg_cmd = [
                       'ffmpeg', '-y',
                       '-nostats', '-loglevel', 'error',
@@ -208,7 +195,6 @@ jobs:
                       '-i', f"{sink_name}.monitor",
                       '-map', '0:v',
                       '-map', '1:a',
-                      '-vf', 'scale=-1:720,pad=1280:720:(ow-iw)/2:(oh-ih)/2:black',
                       '-c:v', 'libx264',
                       '-preset', 'ultrafast',
                       '-tune', 'zerolatency',
@@ -227,7 +213,7 @@ jobs:
                       f"rtmp://a.rtmp.youtube.com/live2/{youtube_key}"
                   ]
 
-                  print("🎬 Starting FFmpeg Stream...")
+                  print("🎬 Starting FFmpeg Stream (Vertical Format 720x1280)...")
                   ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
                   active_wait(driver1, TOTAL_SESSION_TIME)
 
@@ -254,9 +240,9 @@ jobs:
               current_key = os.environ.get('R1')
               
               if current_key:
-                  _, init_status = get_stream_config()
+                  init_status = get_stream_status()
                   if init_status == "0":
-                      print("⚠️ Stream R1 is set to 0 in control file. Exiting...")
+                      print("⚠️ Stream is set to 0 in control file. Exiting...")
                   else:
                       print("🚀 Starting Continuous Stream Session for R1...")
                       start_stream(current_key, "Sink1")
