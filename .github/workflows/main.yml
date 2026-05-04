@@ -1,14 +1,14 @@
-name: Perpetual Single Stream
+name: Perpetual Dual Stream
 
 on:
   workflow_dispatch:
-  repository_dispatch:
-    types: [restart-session]
 
-# تم إزالة قسم concurrency عمداً للسماح للجلسة الجديدة بالبدء والتحضير 
-# قبل أن تنتهي الجلسة الحالية، مما يضمن عدم انقطاع البث على يوتيوب.
+concurrency:
+  group: streaming-group
+  cancel-in-progress: true
 
 env:
+  # نظام التحكم في تشغيل أو إيقاف البث (1 = شغال | 0 = متوقف)
   ENABLE_STREAM: 1
 
 jobs:
@@ -30,6 +30,12 @@ jobs:
           retain_days: 0
           keep_minimum_runs: 1
 
+      - name: 🔢 Initialize System States
+        run: |
+          if [ ! -f hashtag.txt ]; then
+            echo "32" > hashtag.txt
+          fi
+
       - name: System Setup
         run: |
           sudo apt-get update -qq
@@ -43,7 +49,7 @@ jobs:
       - name: Create Python Script
         run: |
           cat << 'EOF' > main.py
-          import os, subprocess, time, requests, signal, sys
+          import os, subprocess, time, requests, signal, random, urllib.parse, sys
           from pyvirtualdisplay import Display
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
@@ -52,11 +58,15 @@ jobs:
           # ==========================================
           # إعدادات البث والمروحة وروابط التحكم
           # ==========================================
-          MASTER_CONTROL_URL = "https://meja.do.am/work/lives.txt"
-          TARGET_STREAM_URL = "https://meja.do.am/live/live2.html"
+          MASTER_CONTROL_URL = "https://meja.do.am/LIVETUBE/stream_OsaGame.txt"
 
-          TOTAL_SESSION_TIME = 5 * 3600  # 5 ساعات
-          OVERLAP_TIME = 90  # بدء الجلسة الجديدة قبل انتهاء الحالية بـ 90 ثانية
+          # رابط النشر الواحد المطلوب
+          APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwnZmIhWA2sSE0w1rbLHVfszDK2_deVCJkq6UGZUkuvb486993f7nwxh7Jll66hlqrK/exec"
+
+          # مدة عشوائية بين 5 ساعات (18000 ثانية) إلى 6 ساعات (21600 ثانية)
+          TOTAL_SESSION_TIME = random.randint(5 * 3600, 6 * 3600)
+
+          # تحكم في صوت مروحة الكمبيوتر
           FAN_VOLUME = 0.08 
 
           def kill_all(signum, frame):
@@ -65,68 +75,57 @@ jobs:
           signal.signal(signal.SIGTERM, kill_all)
           signal.signal(signal.SIGINT, kill_all)
 
-          def get_stream_status():
+          def get_stream_config(index):
               try:
                   res = requests.get(f"{MASTER_CONTROL_URL}?t={int(time.time())}", timeout=10)
                   lines = [l.strip() for l in res.text.strip().split('\n') if l.strip()]
-                  if len(lines) > 0:
-                      parts = lines[0].split()
+                  if index - 1 < len(lines):
+                      parts = lines[index - 1].split()
                       if len(parts) >= 2:
-                          return parts[1] # إرجاع حالة البث (0 أو 1)
+                          return parts[0], parts[1] # إرجاع الرابط، وحالة البث (0 أو 1)
               except Exception as e:
                   print(f"Error reading control file: {e}")
-              return "1" # الافتراضي هو التشغيل
+              return None, None
 
-          def trigger_new_session():
-              print("🚀 Triggering new session to overlap and ensure continuous 24/7 stream...")
-              url = f"https://api.github.com/repos/{os.environ['GITHUB_REPO']}/dispatches"
-              headers = {
-                  "Authorization": f"token {os.environ['GITHUB_TOKEN']}",
-                  "Accept": "application/vnd.github.v3+json"
-              }
-              data = {"event_type": "restart-session"}
-              try:
-                  response = requests.post(url, headers=headers, json=data)
-                  if response.status_code == 204:
-                      print("✅ New GitHub Action triggered successfully.")
-                  else:
-                      print(f"⚠️ Trigger response code: {response.status_code}")
-              except Exception as e:
-                  print(f"❌ Error triggering new session: {e}")
-
-          def active_wait(driver, duration):
+          def active_wait(driver, duration, stream_index):
               start_time = time.time()
               last_check_time = 0
-              triggered_next = False
+              last_url = driver.current_url
               
               while time.time() - start_time < duration:
-                  elapsed = time.time() - start_time
-                  
-                  # تشغيل الجلسة القادمة قبل إغلاق الحالية بـ 90 ثانية (Overlap)
-                  if not triggered_next and elapsed >= (duration - OVERLAP_TIME):
-                      trigger_new_session()
-                      triggered_next = True
-                      
                   try:
                       driver.find_element(By.TAG_NAME, 'body').click()
                   except:
                       pass
                   
                   current_time = time.time()
-                  if current_time - last_check_time > 10: 
+                  if current_time - last_check_time > 10: # فحص حالة البث كل 10 ثواني
                       last_check_time = current_time
-                      status = get_stream_status()
+                      new_url, status = get_stream_config(stream_index)
                       
                       if status == "0":
-                          print("🛑 Control file requested STOP (status=0). Ending stream...")
-                          break 
+                          print(f"🛑 Control file requested STOP (status=0). Ending stream...")
+                          break # إنهاء حلقة الانتظار لإيقاف البث فوراً
+                      
+                      if new_url and status == "1" and new_url != last_url:
+                          try:
+                              driver.delete_all_cookies()
+                              driver.execute_script("window.localStorage.clear();")
+                              driver.execute_script("window.sessionStorage.clear();")
+                              driver.execute_cdp_cmd('Network.clearBrowserCache', {})
+                              driver.execute_cdp_cmd('Network.clearBrowserCookies', {})
+                              driver.get(new_url)
+                              last_url = new_url
+                              print(f"🔄 URL updated dynamically to: {new_url}")
+                          except Exception as e:
+                              pass
                   
                   time.sleep(5)
 
           # ==========================================
           # دالة البث الرئيسية 
           # ==========================================
-          def start_stream(youtube_key, sink_name):
+          def start_stream(youtube_key, sink_name, stream_index, apps_script_url, duration, stream_title=None):
               os.environ['PULSE_SINK'] = sink_name
               
               # الشاشة الخاصة باللعبة بمقاس 720x1280 بالطول
@@ -139,7 +138,7 @@ jobs:
               fan_process = None
               driver1 = None
               
-              print(f"🎯 Target Stream Duration: {TOTAL_SESSION_TIME} seconds ({TOTAL_SESSION_TIME/3600:.2f} hours).")
+              print(f"🎯 Target Stream Duration: {duration} seconds ({duration/3600:.2f} hours).")
 
               try:
                   opts = Options()
@@ -150,12 +149,16 @@ jobs:
                   opts.add_argument('--disable-infobars')
                   opts.add_argument('--disable-extensions')
                   opts.add_argument('--disable-popup-blocking')
-                  opts.add_argument('--disable-gpu')
-                  opts.add_argument('--disable-software-rasterizer')
+                  opts.add_argument('--disable-features=TranslateUI')
+                  opts.add_argument('--disable-gpu') # أساسي للـ Headless
                   
-                  # أمر تصغير محتوى المتصفح بنسبة 80% ليحتوي اللعبة بالكامل وتحديد حجم النافذة بالطول
-                  opts.add_argument('--force-device-scale-factor=1')
-                  opts.add_argument('--window-size=720,1280')
+                  # ==========================================
+                  # الحل النهائي لمنع تقطيع الفريمات في نهاية اللعبة
+                  # ==========================================
+                  opts.add_argument('--js-flags="--max-old-space-size=4096 --no-incremental-marking"')
+                  opts.add_argument('--disable-canvas-aa')
+                  opts.add_argument('--disable-2d-canvas-clip-aa')
+                  opts.add_argument('--enable-highres-timer')
                   
                   opts.add_experimental_option("excludeSwitches", ["enable-automation"])
                   opts.add_experimental_option('useAutomationExtension', False)
@@ -167,9 +170,22 @@ jobs:
                   os.environ['DISPLAY'] = f":{disp1.display}"
                   driver1 = webdriver.Chrome(options=opts)
                   
-                  print(f"📺 Navigating directly to Game Content: {TARGET_STREAM_URL}")
-                  driver1.get(TARGET_STREAM_URL)
-                  time.sleep(8)
+                  separator = "&" if "?" in apps_script_url else "?"
+                  trigger_url = f"{apps_script_url}{separator}nocache={int(time.time())}"
+                  if stream_title:
+                      trigger_url += f"&title={urllib.parse.quote(stream_title)}"
+                      
+                  print(f"🔗 Opening Publishing Link in Game Browser: {trigger_url}")
+                  driver1.get(trigger_url)
+                  
+                  print("⏳ Waiting 10 seconds for stream setup...")
+                  time.sleep(10)
+                  
+                  target_url, status = get_stream_config(stream_index)
+                  if target_url:
+                      print(f"📺 Navigating to Game Content: {target_url}")
+                      driver1.get(target_url)
+                      time.sleep(8)
 
                   # تشغيل صوت المروحة
                   fan_cmd = [
@@ -181,41 +197,41 @@ jobs:
                   fan_env['PULSE_SINK'] = sink_name
                   fan_process = subprocess.Popen(fan_cmd, env=fan_env)
 
-                  # التسجيل المباشر للشاشة بدقة 720x1280 (بالطول) بدون حواف سوداء
+                  # التسجيل المباشر للشاشة بدقة 720x1280 
                   ffmpeg_cmd = [
                       'ffmpeg', '-y',
                       '-nostats', '-loglevel', 'error',
-                      '-thread_queue_size', '512',
+                      '-fflags', 'nobuffer',
                       '-f', 'x11grab',
                       '-framerate', '60',
+                      '-draw_mouse', '0',
                       '-video_size', '720x1280',
                       '-i', f":{disp1.display}",
-                      '-thread_queue_size', '512',
                       '-f', 'pulse',
                       '-i', f"{sink_name}.monitor",
                       '-map', '0:v',
                       '-map', '1:a',
                       '-c:v', 'libx264',
                       '-preset', 'ultrafast',
+                      '-profile:v', 'baseline',
                       '-tune', 'zerolatency',
+                      '-threads', '2',
                       '-fps_mode', 'cfr',
-                      '-b:v', '3000k',
-                      '-maxrate', '3000k',
-                      '-bufsize', '6000k',
+                      '-b:v', '2500k',
+                      '-maxrate', '2500k',
+                      '-bufsize', '2500k',
                       '-r', '60',
                       '-g', '120',
-                      '-keyint_min', '120',
                       '-sc_threshold', '0',
                       '-pix_fmt', 'yuv420p',
                       '-c:a', 'aac',
-                      '-b:a', '128k',
+                      '-b:a', '96k',
                       '-f', 'flv',
                       f"rtmp://a.rtmp.youtube.com/live2/{youtube_key}"
                   ]
 
-                  print("🎬 Starting FFmpeg Stream (Vertical Format 720x1280)...")
                   ffmpeg_proc = subprocess.Popen(ffmpeg_cmd)
-                  active_wait(driver1, TOTAL_SESSION_TIME)
+                  active_wait(driver1, duration, stream_index)
 
               except Exception as e:
                   print(f"Stream encountered an error: {e}")
@@ -223,12 +239,7 @@ jobs:
                   if fan_process:
                       fan_process.terminate()
                   if ffmpeg_proc:
-                      # التعديل الأهم: إغلاق البث بسلام لمنع خطأ Broken Pipe و End of file
-                      ffmpeg_proc.terminate()
-                      try:
-                          ffmpeg_proc.wait(timeout=5)
-                      except subprocess.TimeoutExpired:
-                          ffmpeg_proc.kill()
+                      ffmpeg_proc.kill()
                   try:
                       if driver1: driver1.quit()
                   except:
@@ -237,22 +248,62 @@ jobs:
                   print("🛑 Stream ended successfully.")
 
           if __name__ == "__main__":
+              ENABLE_STREAM = os.environ.get('ENABLE_STREAM', '1') == '1'
+              
               current_key = os.environ.get('R1')
               
-              if current_key:
-                  init_status = get_stream_status()
+              if ENABLE_STREAM and current_key:
+                  try:
+                      with open("hashtag.txt", "r") as f:
+                          hashtag_num = int(f.read().strip())
+                  except:
+                          hashtag_num = 32
+                      
+                  stream_title = f"Snake game breaks world record #{hashtag_num}"
+                  
+                  # ==========================================
+                  # جلب الروابط واختيار واحد عشوائي
+                  # ==========================================
+                  random_index = 1
+                  try:
+                      res = requests.get(f"{MASTER_CONTROL_URL}?t={int(time.time())}", timeout=10)
+                      valid_lines = [l.strip() for l in res.text.strip().split('\n') if l.strip()]
+                      if valid_lines:
+                          random_index = random.randint(1, len(valid_lines))
+                          print(f"🎲 Randomly selected stream index: {random_index} out of {len(valid_lines)} available links.")
+                      else:
+                          print("⚠️ Control file is empty, defaulting to index 1.")
+                  except Exception as e:
+                      print(f"⚠️ Error fetching lines to pick randomly: {e}. Defaulting to index 1.")
+
+                  # فحص حالة البث للرابط العشوائي المختار
+                  _, init_status = get_stream_config(random_index)
+                  
                   if init_status == "0":
-                      print("⚠️ Stream is set to 0 in control file. Exiting...")
+                      print(f"⚠️ Selected stream (Index {random_index}) is set to 0 in control file. Exiting...")
                   else:
-                      print("🚀 Starting Continuous Stream Session for R1...")
-                      start_stream(current_key, "Sink1")
+                      print(f"🚀 Starting Stream Session for R1 using Link Index {random_index}...")
+                      start_stream(current_key, "Sink1", random_index, APPS_SCRIPT_URL, TOTAL_SESSION_TIME, stream_title=stream_title)
+                      
+                      # حفظ الهاشتاج فقط إذا تم تشغيل البث
+                      with open("hashtag.txt", "w") as f:
+                          f.write(str(hashtag_num + 1))
               else:
-                  print("⚠️ Stream key for R1 is missing.")
+                  print(f"⚠️ Stream key for R1 is missing or stream is disabled.")
+
           EOF
 
       - name: Run Streaming Script
         env:
           R1: ${{ secrets.R1 }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # لإرسال أمر تشغيل الجلسة الجديدة من داخل البايثون
-          GITHUB_REPO: ${{ github.repository }}
+          ENABLE_STREAM: ${{ env.ENABLE_STREAM }}
         run: python main.py
+
+      - name: 💾 Commit Updated State Files
+        if: always()
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+          git add hashtag.txt
+          git commit -m "Update stream hashtag" || echo "No changes to commit"
+          git push
