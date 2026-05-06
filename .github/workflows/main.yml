@@ -13,7 +13,7 @@ env:
 
 jobs:
   stream:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 360
     permissions:
       actions: write
@@ -38,18 +38,33 @@ jobs:
 
       - name: System Setup
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb ffmpeg pulseaudio google-chrome-stable unclutter > /dev/null
+          echo "1. Fixing Mirror Links..."
+          # بدلاً من حذف الملف، سنقوم بكتابة الرابط السريع بداخله ليعمل النظام بدون مشاكل
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            echo "http://archive.ubuntu.com/ubuntu/" | sudo tee /etc/apt/apt-mirrors.txt
+          fi
+          sudo sed -i 's/azure.archive.ubuntu.com/archive.ubuntu.com/g' /etc/apt/sources.list || true
+          
+          echo "2. Updating Repositories..."
+          sudo apt-get update -y
+          
+          echo "3. Installing Packages..."
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends xvfb ffmpeg pulseaudio unclutter
+          
+          echo "4. Setting up Audio..."
           pulseaudio -D --exit-idle-time=-1 --disallow-exit || true
           pactl load-module module-null-sink sink_name=Sink1
 
       - name: Python Setup
-        run: pip install selenium pyvirtualdisplay requests
+        run: pip install -U urllib3 chardet requests selenium pyvirtualdisplay
 
       - name: Create Python Script
         run: |
           cat << 'EOF' > main.py
           import os, subprocess, time, requests, signal, random, urllib.parse, sys
+          import warnings
+          warnings.filterwarnings("ignore")
+          
           from pyvirtualdisplay import Display
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
@@ -61,7 +76,7 @@ jobs:
           MASTER_CONTROL_URL = "https://meja.do.am/LIVETUBE/stream_OsaGame.txt"
 
           # رابط النشر الواحد المطلوب
-          APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwnZmIhWA2sSE0w1rbLHVfszDK2_deVCJkq6UGZUkuvb486993f7nwxh7Jll66hlqrK/exec"
+          APPS_SCRIPT_URL = "https://script.google.com/macros/s/11111AKfycbwnZmIhWA2sSE0w1rbLHVfszDK2_deVCJkq6UGZUkuvb486993f7nwxh7Jll66hlqrK/exec"
 
           # مدة عشوائية بين 5 ساعات (18000 ثانية) إلى 6 ساعات (21600 ثانية)
           TOTAL_SESSION_TIME = random.randint(5 * 3600, 6 * 3600)
@@ -150,15 +165,9 @@ jobs:
                   opts.add_argument('--disable-extensions')
                   opts.add_argument('--disable-popup-blocking')
                   opts.add_argument('--disable-features=TranslateUI')
-                  opts.add_argument('--disable-gpu') # أساسي للـ Headless
-                  
-                  # ==========================================
-                  # الحل النهائي لمنع تقطيع الفريمات في نهاية اللعبة
-                  # ==========================================
-                  opts.add_argument('--js-flags="--max-old-space-size=4096 --no-incremental-marking"')
-                  opts.add_argument('--disable-canvas-aa')
-                  opts.add_argument('--disable-2d-canvas-clip-aa')
-                  opts.add_argument('--enable-highres-timer')
+                  opts.add_argument('--disable-gpu')
+                  opts.add_argument('--disable-software-rasterizer')
+                  opts.add_argument('--disable-gpu-compositing')
                   
                   opts.add_experimental_option("excludeSwitches", ["enable-automation"])
                   opts.add_experimental_option('useAutomationExtension', False)
@@ -197,35 +206,34 @@ jobs:
                   fan_env['PULSE_SINK'] = sink_name
                   fan_process = subprocess.Popen(fan_cmd, env=fan_env)
 
-                  # التسجيل المباشر للشاشة بدقة 720x1280 
+                  # التسجيل المباشر للشاشة بدقة 720x1280
                   ffmpeg_cmd = [
                       'ffmpeg', '-y',
                       '-nostats', '-loglevel', 'error',
-                      '-fflags', 'nobuffer',
+                      '-thread_queue_size', '512',
                       '-f', 'x11grab',
                       '-framerate', '60',
-                      '-draw_mouse', '0',
                       '-video_size', '720x1280',
                       '-i', f":{disp1.display}",
+                      '-thread_queue_size', '512',
                       '-f', 'pulse',
                       '-i', f"{sink_name}.monitor",
                       '-map', '0:v',
                       '-map', '1:a',
                       '-c:v', 'libx264',
                       '-preset', 'ultrafast',
-                      '-profile:v', 'baseline',
                       '-tune', 'zerolatency',
-                      '-threads', '2',
-                      '-fps_mode', 'cfr',
-                      '-b:v', '2500k',
-                      '-maxrate', '2500k',
-                      '-bufsize', '2500k',
+                      '-vsync', '1',
+                      '-b:v', '3000k',
+                      '-maxrate', '3000k',
+                      '-bufsize', '6000k',
                       '-r', '60',
                       '-g', '120',
+                      '-keyint_min', '120',
                       '-sc_threshold', '0',
                       '-pix_fmt', 'yuv420p',
                       '-c:a', 'aac',
-                      '-b:a', '96k',
+                      '-b:a', '128k',
                       '-f', 'flv',
                       f"rtmp://a.rtmp.youtube.com/live2/{youtube_key}"
                   ]
