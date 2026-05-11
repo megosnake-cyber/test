@@ -35,7 +35,7 @@ jobs:
             echo "32" > hashtag.txt
           fi
 
-      - name: System Setup & Audio Routing Fix
+      - name: System Setup
         run: |
           echo "1. Fixing Mirror Links..."
           if [ -f /etc/apt/apt-mirrors.txt ]; then
@@ -49,11 +49,11 @@ jobs:
           echo "3. Installing Packages..."
           DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends xvfb ffmpeg pulseaudio unclutter alsa-utils
           
-          echo "4. Setting up Audio Routing to FFmpeg..."
-          # إجبار متصفح كروم على إخراج الصوت لـ PulseAudio
+          echo "4. Setting up Audio..."
+          # إجبار كروم على إرسال الصوت لـ PulseAudio
           echo "pcm.!default { type pulse }" > ~/.asoundrc
           echo "ctl.!default { type pulse }" >> ~/.asoundrc
-          
+
           pulseaudio -D --exit-idle-time=-1 --disallow-exit || true
           pactl load-module module-null-sink sink_name=Sink1
           pactl set-default-sink Sink1
@@ -77,11 +77,19 @@ jobs:
           # إعدادات البث والمروحة وروابط التحكم
           # ==========================================
           MASTER_CONTROL_URL = "https://meja.do.am/LIVETUBE/stream_OsaGame.txt"
+
+          # رابط النشر الواحد المطلوب
           APPS_SCRIPT_URL = "https://script.google.com/macros/s/11111AKfycbwnZmIhWA2sSE0w1rbLHVfszDK2_deVCJkq6UGZUkuvb486993f7nwxh7Jll66hlqrK/exec"
+
+          # مدة عشوائية بين 5 ساعات (18000 ثانية) إلى 6 ساعات (21600 ثانية)
           TOTAL_SESSION_TIME = random.randint(5 * 3600, 6 * 3600)
+
+          # تحكم في صوت مروحة الكمبيوتر
           FAN_VOLUME = 0.08 
 
-          # إنشاء صفحة الانتظار السوداء المتحركة (Fallback)
+          # ---------------------------------------------------------
+          # إنشاء صفحة الانتظار السوداء المتحركة (شاشة توقف - Fallback)
+          # ---------------------------------------------------------
           WAITING_HTML_PATH = os.path.abspath("waiting.html")
           with open(WAITING_HTML_PATH, "w", encoding="utf-8") as f:
               f.write("""
@@ -112,6 +120,7 @@ jobs:
           signal.signal(signal.SIGTERM, kill_all)
           signal.signal(signal.SIGINT, kill_all)
 
+          # دالة الجلب تم تعديلها لإرجاع الرابط فقط، بدون حالة 0 أو 1
           def get_stream_config(index):
               try:
                   res = requests.get(f"{MASTER_CONTROL_URL}?t={int(time.time())}", timeout=10)
@@ -121,7 +130,7 @@ jobs:
               except Exception as e:
                   print(f"Error reading control file: {e}")
               
-              # إذا كان الملف فارغاً أو محذوفاً، نرجع صفحة الانتظار
+              # في حال كان الملف فارغاً أو محذوفاً، نرجع صفحة الانتظار السوداء
               return WAITING_URL
 
           def active_wait(driver, duration, stream_index):
@@ -140,7 +149,8 @@ jobs:
                       last_check_time = current_time
                       new_url = get_stream_config(stream_index)
                       
-                      if new_url != last_url:
+                      # تحديث الرابط فقط إذا تغير
+                      if new_url and new_url != last_url:
                           try:
                               driver.delete_all_cookies()
                               driver.execute_script("window.localStorage.clear();")
@@ -149,8 +159,9 @@ jobs:
                               driver.execute_cdp_cmd('Network.clearBrowserCookies', {})
                               driver.get(new_url)
                               last_url = new_url
+                              
                               if new_url == WAITING_URL:
-                                  print("⚠️ Link removed or empty file! Switching to Waiting Screen.")
+                                  print("⚠️ URL empty or removed. Switching to Waiting Screen.")
                               else:
                                   print(f"🔄 URL updated dynamically to: {new_url}")
                           except Exception as e:
@@ -164,6 +175,7 @@ jobs:
           def start_stream(youtube_key, sink_name, stream_index, apps_script_url, duration, stream_title=None):
               os.environ['PULSE_SINK'] = sink_name
               
+              # الشاشة الخاصة باللعبة بمقاس 720x1280 بالطول
               disp1 = Display(visible=0, size=(720, 1280), backend='xvfb')
               disp1.start()
               
@@ -184,7 +196,8 @@ jobs:
                   opts.add_argument('--disable-infobars')
                   opts.add_argument('--disable-extensions')
                   opts.add_argument('--disable-popup-blocking')
-                  opts.add_argument('--disable-features=TranslateUI,AudioServiceOutOfProcess') # مهم لضمان استقرار الصوت
+                  # تعطيل فصل الصوت في الخلفية (AudioServiceOutOfProcess) لتجنب انقطاعه
+                  opts.add_argument('--disable-features=TranslateUI,AudioServiceOutOfProcess')
                   opts.add_argument('--disable-gpu')
                   opts.add_argument('--disable-software-rasterizer')
                   opts.add_argument('--disable-gpu-compositing')
@@ -195,10 +208,10 @@ jobs:
                   opts.add_argument('--hide-scrollbars')
                   opts.add_argument('--kiosk')
 
+                  # تشغيل متصفح اللعبة
                   os.environ['DISPLAY'] = f":{disp1.display}"
                   driver1 = webdriver.Chrome(options=opts)
                   
-                  # فتح رابط السكريبت لتفعيله أولاً
                   separator = "&" if "?" in apps_script_url else "?"
                   trigger_url = f"{apps_script_url}{separator}nocache={int(time.time())}"
                   if stream_title:
@@ -210,13 +223,12 @@ jobs:
                   print("⏳ Waiting 10 seconds for stream setup...")
                   time.sleep(10)
                   
-                  # فتح رابط اللعبة أو الانتظار
                   target_url = get_stream_config(stream_index)
                   print(f"📺 Navigating to Game Content: {target_url}")
                   driver1.get(target_url)
                   time.sleep(8)
 
-                  # تشغيل صوت المروحة الخلفي
+                  # تشغيل صوت المروحة
                   fan_cmd = [
                       'ffplay', '-f', 'lavfi', 
                       '-i', f'anoisesrc=a={FAN_VOLUME}:c=pink,lowpass=f=800,tremolo=f=0.04:d=0.6', 
@@ -226,7 +238,7 @@ jobs:
                   fan_env['PULSE_SINK'] = sink_name
                   fan_process = subprocess.Popen(fan_cmd, env=fan_env)
 
-                  # تسجيل الشاشة وإخراجها عبر FFmpeg
+                  # التسجيل المباشر للشاشة بدقة 720x1280
                   ffmpeg_cmd = [
                       'ffmpeg', '-y',
                       '-nostats', '-loglevel', 'error',
@@ -264,8 +276,10 @@ jobs:
               except Exception as e:
                   print(f"Stream encountered an error: {e}")
               finally:
-                  if fan_process: fan_process.terminate()
-                  if ffmpeg_proc: ffmpeg_proc.kill()
+                  if fan_process:
+                      fan_process.terminate()
+                  if ffmpeg_proc:
+                      ffmpeg_proc.kill()
                   try:
                       if driver1: driver1.quit()
                   except:
@@ -286,6 +300,9 @@ jobs:
                       
                   stream_title = f"Snake game breaks world record #{hashtag_num}"
                   
+                  # ==========================================
+                  # جلب الروابط واختيار واحد عشوائي
+                  # ==========================================
                   random_index = 1
                   try:
                       res = requests.get(f"{MASTER_CONTROL_URL}?t={int(time.time())}", timeout=10)
@@ -301,6 +318,7 @@ jobs:
                   print(f"🚀 Starting Stream Session for R1 using Link Index {random_index}...")
                   start_stream(current_key, "Sink1", random_index, APPS_SCRIPT_URL, TOTAL_SESSION_TIME, stream_title=stream_title)
                   
+                  # حفظ الهاشتاج فقط إذا تم تشغيل البث
                   with open("hashtag.txt", "w") as f:
                       f.write(str(hashtag_num + 1))
               else:
