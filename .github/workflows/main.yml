@@ -113,7 +113,7 @@ jobs:
                       new_url, status = get_stream_config(stream_index)
                       
                       if status == "0":
-                          print(f"🛑 Control file requested STOP (status=0). Ending stream...")
+                          print(f"🛑 Control file requested STOP (status=0). Ending stream...", flush=True)
                           break
                       
                       if new_url and status == "1" and new_url != last_url:
@@ -125,7 +125,7 @@ jobs:
                               driver.execute_cdp_cmd('Network.clearBrowserCookies', {})
                               driver.get(new_url)
                               last_url = new_url
-                              print(f"🔄 URL updated dynamically to: {new_url}")
+                              print(f"🔄 URL updated dynamically to: {new_url}", flush=True)
                           except:
                               pass
                   
@@ -139,31 +139,38 @@ jobs:
               
               subprocess.Popen(['unclutter', '-idle', '0', '-display', f":{disp1.display}"])
               
-              vnc_proc = subprocess.Popen(['x11vnc', '-display', f":{disp1.display}", '-forever', '-nopw', '-listen', 'localhost', '-shared', '-noxdamage', '-noxfixes', '-noxrecord', '-q'])
+              vnc_proc = subprocess.Popen(['x11vnc', '-display', f":{disp1.display}", '-forever', '-nopw', '-listen', 'localhost', '-shared', '-noxdamage', '-noxfixes', '-noxrecord', '-q'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
               novnc_proc = subprocess.Popen(['/usr/share/novnc/utils/launch.sh', '--vnc', 'localhost:5900', '--listen', '6080'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
               
               cf_log = open("cloudflared.log", "w")
               cf_proc = subprocess.Popen(['./cloudflared', 'tunnel', '--url', 'http://localhost:6080'], stderr=cf_log)
               
-              print("⏳ Waiting 10 seconds for Live Control Tunnel...")
-              time.sleep(10)
-              try:
-                  with open("cloudflared.log", "r") as f:
-                      logs = f.read()
-                      urls = re.findall(r'https://[a-zA-Z0-9-]+.trycloudflare.com', logs)
-                      if urls:
-                          print("\n" + "="*60)
-                          print(f"🎮 رابــــط الـتـحـكــــم الـلـحـظـــي (الـعـب مـن هـنـا):")
-                          print(f"👉 {urls[-1]}")
-                          print("="*60 + "\n")
-              except:
-                  pass
+              print("⏳ Waiting for Live Control Tunnel to generate link...", flush=True)
+              cf_url = None
+              for _ in range(15):
+                  time.sleep(2)
+                  try:
+                      with open("cloudflared.log", "r") as f:
+                          urls = re.findall(r'https://[a-zA-Z0-9-]+.trycloudflare.com', f.read())
+                          if urls:
+                              cf_url = urls[-1]
+                              break
+                  except:
+                      pass
+              
+              if cf_url:
+                  print("\n" + "="*60, flush=True)
+                  print(f"🎮 رابــــط الـتـحـكــــم الـلـحـظـــي (الـعـب مـن هـنـا):", flush=True)
+                  print(f"👉 {cf_url}", flush=True)
+                  print("="*60 + "\n", flush=True)
+              else:
+                  print("⚠️ Could not fetch Cloudflare link. Please check cloudflared logs.", flush=True)
               
               ffmpeg_proc = None
               fan_process = None
               driver1 = None
               
-              print(f"🎯 Target Stream Duration: {duration} seconds.")
+              print(f"🎯 Target Stream Duration: {duration} seconds.", flush=True)
 
               try:
                   opts = Options()
@@ -190,13 +197,13 @@ jobs:
                   os.environ['DISPLAY'] = f":{disp1.display}"
                   driver1 = webdriver.Chrome(options=opts)
                   
-                  print("🎙️ Opening Listener in background...")
+                  print("🎙️ Opening Listener in background...", flush=True)
                   driver1.get("http://187.127.73.17:8000/listener")
                   time.sleep(3)
                   
                   try:
                       driver1.find_element(By.ID, 'unlock-btn').click()
-                      print("✅ Listener Audio Context Activated.")
+                      print("✅ Listener Audio Context Activated.", flush=True)
                   except:
                       pass
                   
@@ -263,7 +270,7 @@ jobs:
                   active_wait(driver1, duration, stream_index)
 
               except Exception as e:
-                  print(f"Stream encountered an error: {e}")
+                  print(f"Stream encountered an error: {e}", flush=True)
               finally:
                   if fan_process: fan_process.terminate()
                   if ffmpeg_proc: ffmpeg_proc.kill()
@@ -275,7 +282,7 @@ jobs:
                   except:
                       pass
                   disp1.stop()
-                  print("🛑 Stream ended successfully.")
+                  print("🛑 Stream ended successfully.", flush=True)
 
           if __name__ == "__main__":
               ENABLE_STREAM = os.environ.get('ENABLE_STREAM', '1') == '1'
@@ -307,11 +314,12 @@ jobs:
                       with open("hashtag.txt", "w") as f:
                           f.write(str(hashtag_num + 1))
               else:
-                  print(f"⚠️ Stream key for R1 is missing or stream is disabled.")
+                  print(f"⚠️ Stream key for R1 is missing or stream is disabled.", flush=True)
           EOF
 
       - name: Run Streaming Script
         env:
+          PYTHONUNBUFFERED: 1
           R1: ${{ secrets.R1 }}
           ENABLE_STREAM: ${{ env.ENABLE_STREAM }}
         run: python main.py
