@@ -8,7 +8,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # نظام التحكم في تشغيل أو إيقاف البث (1 = شغال | 0 = متوقف)
   ENABLE_STREAM: 1
 
 jobs:
@@ -36,10 +35,9 @@ jobs:
             echo "32" > hashtag.txt
           fi
 
-      - name: System Setup
+      - name: System Setup & Audio Routing Fix
         run: |
           echo "1. Fixing Mirror Links..."
-          # بدلاً من حذف الملف، سنقوم بكتابة الرابط السريع بداخله ليعمل النظام بدون مشاكل
           if [ -f /etc/apt/apt-mirrors.txt ]; then
             echo "http://archive.ubuntu.com/ubuntu/" | sudo tee /etc/apt/apt-mirrors.txt
           fi
@@ -49,11 +47,16 @@ jobs:
           sudo apt-get update -y
           
           echo "3. Installing Packages..."
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends xvfb ffmpeg pulseaudio unclutter
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends xvfb ffmpeg pulseaudio unclutter alsa-utils
           
-          echo "4. Setting up Audio..."
+          echo "4. Setting up Audio Routing to FFmpeg..."
+          # إجبار متصفح كروم على إخراج الصوت لـ PulseAudio
+          echo "pcm.!default { type pulse }" > ~/.asoundrc
+          echo "ctl.!default { type pulse }" >> ~/.asoundrc
+          
           pulseaudio -D --exit-idle-time=-1 --disallow-exit || true
           pactl load-module module-null-sink sink_name=Sink1
+          pactl set-default-sink Sink1
 
       - name: Python Setup
         run: pip install -U urllib3 chardet requests selenium pyvirtualdisplay
@@ -74,15 +77,34 @@ jobs:
           # إعدادات البث والمروحة وروابط التحكم
           # ==========================================
           MASTER_CONTROL_URL = "https://meja.do.am/LIVETUBE/stream_OsaGame.txt"
-
-          # رابط النشر الواحد المطلوب
           APPS_SCRIPT_URL = "https://script.google.com/macros/s/11111AKfycbwnZmIhWA2sSE0w1rbLHVfszDK2_deVCJkq6UGZUkuvb486993f7nwxh7Jll66hlqrK/exec"
-
-          # مدة عشوائية بين 5 ساعات (18000 ثانية) إلى 6 ساعات (21600 ثانية)
           TOTAL_SESSION_TIME = random.randint(5 * 3600, 6 * 3600)
-
-          # تحكم في صوت مروحة الكمبيوتر
           FAN_VOLUME = 0.08 
+
+          # إنشاء صفحة الانتظار السوداء المتحركة (Fallback)
+          WAITING_HTML_PATH = os.path.abspath("waiting.html")
+          with open(WAITING_HTML_PATH, "w", encoding="utf-8") as f:
+              f.write("""
+              <html>
+              <body style="background:black;color:white;font-family:sans-serif;overflow:hidden;margin:0;">
+                  <div id="text" style="position:absolute;font-size:45px;font-weight:bold;color:#00ff00;">Waiting for Stream...</div>
+                  <script>
+                      let x=0, y=0, dx=4, dy=4;
+                      function animate() {
+                          x+=dx; y+=dy;
+                          if(x<=0 || x>=window.innerWidth-400) dx=-dx;
+                          if(y<=0 || y>=window.innerHeight-60) dy=-dy;
+                          let el = document.getElementById('text');
+                          el.style.left = x+'px';
+                          el.style.top = y+'px';
+                          requestAnimationFrame(animate);
+                      }
+                      animate();
+                  </script>
+              </body>
+              </html>
+              """)
+          WAITING_URL = f"file://{WAITING_HTML_PATH}"
 
           def kill_all(signum, frame):
               os._exit(0)
@@ -94,13 +116,13 @@ jobs:
               try:
                   res = requests.get(f"{MASTER_CONTROL_URL}?t={int(time.time())}", timeout=10)
                   lines = [l.strip() for l in res.text.strip().split('\n') if l.strip()]
-                  if index - 1 < len(lines):
-                      parts = lines[index - 1].split()
-                      if len(parts) >= 2:
-                          return parts[0], parts[1] # إرجاع الرابط، وحالة البث (0 أو 1)
+                  if lines and index - 1 < len(lines):
+                      return lines[index - 1] # إرجاع الرابط فقط
               except Exception as e:
                   print(f"Error reading control file: {e}")
-              return None, None
+              
+              # إذا كان الملف فارغاً أو محذوفاً، نرجع صفحة الانتظار
+              return WAITING_URL
 
           def active_wait(driver, duration, stream_index):
               start_time = time.time()
@@ -114,15 +136,11 @@ jobs:
                       pass
                   
                   current_time = time.time()
-                  if current_time - last_check_time > 10: # فحص حالة البث كل 10 ثواني
+                  if current_time - last_check_time > 10: # فحص حالة الرابط كل 10 ثواني
                       last_check_time = current_time
-                      new_url, status = get_stream_config(stream_index)
+                      new_url = get_stream_config(stream_index)
                       
-                      if status == "0":
-                          print(f"🛑 Control file requested STOP (status=0). Ending stream...")
-                          break # إنهاء حلقة الانتظار لإيقاف البث فوراً
-                      
-                      if new_url and status == "1" and new_url != last_url:
+                      if new_url != last_url:
                           try:
                               driver.delete_all_cookies()
                               driver.execute_script("window.localStorage.clear();")
@@ -131,7 +149,10 @@ jobs:
                               driver.execute_cdp_cmd('Network.clearBrowserCookies', {})
                               driver.get(new_url)
                               last_url = new_url
-                              print(f"🔄 URL updated dynamically to: {new_url}")
+                              if new_url == WAITING_URL:
+                                  print("⚠️ Link removed or empty file! Switching to Waiting Screen.")
+                              else:
+                                  print(f"🔄 URL updated dynamically to: {new_url}")
                           except Exception as e:
                               pass
                   
@@ -143,7 +164,6 @@ jobs:
           def start_stream(youtube_key, sink_name, stream_index, apps_script_url, duration, stream_title=None):
               os.environ['PULSE_SINK'] = sink_name
               
-              # الشاشة الخاصة باللعبة بمقاس 720x1280 بالطول
               disp1 = Display(visible=0, size=(720, 1280), backend='xvfb')
               disp1.start()
               
@@ -164,7 +184,7 @@ jobs:
                   opts.add_argument('--disable-infobars')
                   opts.add_argument('--disable-extensions')
                   opts.add_argument('--disable-popup-blocking')
-                  opts.add_argument('--disable-features=TranslateUI')
+                  opts.add_argument('--disable-features=TranslateUI,AudioServiceOutOfProcess') # مهم لضمان استقرار الصوت
                   opts.add_argument('--disable-gpu')
                   opts.add_argument('--disable-software-rasterizer')
                   opts.add_argument('--disable-gpu-compositing')
@@ -175,10 +195,10 @@ jobs:
                   opts.add_argument('--hide-scrollbars')
                   opts.add_argument('--kiosk')
 
-                  # تشغيل متصفح اللعبة
                   os.environ['DISPLAY'] = f":{disp1.display}"
                   driver1 = webdriver.Chrome(options=opts)
                   
+                  # فتح رابط السكريبت لتفعيله أولاً
                   separator = "&" if "?" in apps_script_url else "?"
                   trigger_url = f"{apps_script_url}{separator}nocache={int(time.time())}"
                   if stream_title:
@@ -190,13 +210,13 @@ jobs:
                   print("⏳ Waiting 10 seconds for stream setup...")
                   time.sleep(10)
                   
-                  target_url, status = get_stream_config(stream_index)
-                  if target_url:
-                      print(f"📺 Navigating to Game Content: {target_url}")
-                      driver1.get(target_url)
-                      time.sleep(8)
+                  # فتح رابط اللعبة أو الانتظار
+                  target_url = get_stream_config(stream_index)
+                  print(f"📺 Navigating to Game Content: {target_url}")
+                  driver1.get(target_url)
+                  time.sleep(8)
 
-                  # تشغيل صوت المروحة
+                  # تشغيل صوت المروحة الخلفي
                   fan_cmd = [
                       'ffplay', '-f', 'lavfi', 
                       '-i', f'anoisesrc=a={FAN_VOLUME}:c=pink,lowpass=f=800,tremolo=f=0.04:d=0.6', 
@@ -206,7 +226,7 @@ jobs:
                   fan_env['PULSE_SINK'] = sink_name
                   fan_process = subprocess.Popen(fan_cmd, env=fan_env)
 
-                  # التسجيل المباشر للشاشة بدقة 720x1280
+                  # تسجيل الشاشة وإخراجها عبر FFmpeg
                   ffmpeg_cmd = [
                       'ffmpeg', '-y',
                       '-nostats', '-loglevel', 'error',
@@ -244,10 +264,8 @@ jobs:
               except Exception as e:
                   print(f"Stream encountered an error: {e}")
               finally:
-                  if fan_process:
-                      fan_process.terminate()
-                  if ffmpeg_proc:
-                      ffmpeg_proc.kill()
+                  if fan_process: fan_process.terminate()
+                  if ffmpeg_proc: ffmpeg_proc.kill()
                   try:
                       if driver1: driver1.quit()
                   except:
@@ -257,7 +275,6 @@ jobs:
 
           if __name__ == "__main__":
               ENABLE_STREAM = os.environ.get('ENABLE_STREAM', '1') == '1'
-              
               current_key = os.environ.get('R1')
               
               if ENABLE_STREAM and current_key:
@@ -269,9 +286,6 @@ jobs:
                       
                   stream_title = f"Snake game breaks world record #{hashtag_num}"
                   
-                  # ==========================================
-                  # جلب الروابط واختيار واحد عشوائي
-                  # ==========================================
                   random_index = 1
                   try:
                       res = requests.get(f"{MASTER_CONTROL_URL}?t={int(time.time())}", timeout=10)
@@ -280,25 +294,17 @@ jobs:
                           random_index = random.randint(1, len(valid_lines))
                           print(f"🎲 Randomly selected stream index: {random_index} out of {len(valid_lines)} available links.")
                       else:
-                          print("⚠️ Control file is empty, defaulting to index 1.")
+                          print("⚠️ File is empty. Will start with Waiting screen.")
                   except Exception as e:
-                      print(f"⚠️ Error fetching lines to pick randomly: {e}. Defaulting to index 1.")
+                      pass
 
-                  # فحص حالة البث للرابط العشوائي المختار
-                  _, init_status = get_stream_config(random_index)
+                  print(f"🚀 Starting Stream Session for R1 using Link Index {random_index}...")
+                  start_stream(current_key, "Sink1", random_index, APPS_SCRIPT_URL, TOTAL_SESSION_TIME, stream_title=stream_title)
                   
-                  if init_status == "0":
-                      print(f"⚠️ Selected stream (Index {random_index}) is set to 0 in control file. Exiting...")
-                  else:
-                      print(f"🚀 Starting Stream Session for R1 using Link Index {random_index}...")
-                      start_stream(current_key, "Sink1", random_index, APPS_SCRIPT_URL, TOTAL_SESSION_TIME, stream_title=stream_title)
-                      
-                      # حفظ الهاشتاج فقط إذا تم تشغيل البث
-                      with open("hashtag.txt", "w") as f:
-                          f.write(str(hashtag_num + 1))
+                  with open("hashtag.txt", "w") as f:
+                      f.write(str(hashtag_num + 1))
               else:
                   print(f"⚠️ Stream key for R1 is missing or stream is disabled.")
-
           EOF
 
       - name: Run Streaming Script
