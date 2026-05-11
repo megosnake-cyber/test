@@ -8,6 +8,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # نظام التحكم في تشغيل أو إيقاف البث (1 = شغال | 0 = متوقف)
   ENABLE_STREAM: 1
 
 jobs:
@@ -47,10 +48,10 @@ jobs:
           sudo apt-get update -y
           
           echo "3. Installing Packages..."
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends xvfb ffmpeg pulseaudio unclutter alsa-utils
+          # إضافة libasound2-plugins ضرورية جداً لنقل صوت كروم إلى PulseAudio في سيرفرات أوبونتو
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends xvfb ffmpeg pulseaudio unclutter alsa-utils libasound2-plugins
           
           echo "4. Setting up Audio..."
-          # إجبار كروم على إرسال الصوت لـ PulseAudio
           echo "pcm.!default { type pulse }" > ~/.asoundrc
           echo "ctl.!default { type pulse }" >> ~/.asoundrc
 
@@ -140,7 +141,9 @@ jobs:
               
               while time.time() - start_time < duration:
                   try:
+                      # الضغط لتفعيل الصوت في المتصفح
                       driver.find_element(By.TAG_NAME, 'body').click()
+                      driver.execute_script("document.body.click();")
                   except:
                       pass
                   
@@ -196,8 +199,7 @@ jobs:
                   opts.add_argument('--disable-infobars')
                   opts.add_argument('--disable-extensions')
                   opts.add_argument('--disable-popup-blocking')
-                  # تعطيل فصل الصوت في الخلفية (AudioServiceOutOfProcess) لتجنب انقطاعه
-                  opts.add_argument('--disable-features=TranslateUI,AudioServiceOutOfProcess')
+                  opts.add_argument('--disable-features=TranslateUI')
                   opts.add_argument('--disable-gpu')
                   opts.add_argument('--disable-software-rasterizer')
                   opts.add_argument('--disable-gpu-compositing')
