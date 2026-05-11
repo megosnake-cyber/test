@@ -46,8 +46,10 @@ jobs:
           echo "2. Updating Repositories..."
           sudo apt-get update -y
           
-          echo "3. Installing Packages..."
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends xvfb ffmpeg pulseaudio unclutter x11vnc novnc python3-websockify wget
+          echo "3. Installing Packages & KasmVNC (WebRTC)..."
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends ffmpeg pulseaudio unclutter wget
+          wget -q https://github.com/kasmtech/KasmVNC/releases/download/v1.3.2/kasmvncserver_jammy_1.3.2_amd64.deb
+          sudo apt-get install -y ./kasmvncserver_jammy_1.3.2_amd64.deb
           
           echo "4. Setting up Audio..."
           pulseaudio -D --exit-idle-time=-1 --disallow-exit || true
@@ -59,7 +61,7 @@ jobs:
           chmod +x cloudflared
 
       - name: Python Setup
-        run: pip install -U urllib3 chardet requests selenium pyvirtualdisplay
+        run: pip install -U urllib3 chardet requests selenium
 
       - name: Create Python Script
         run: |
@@ -68,7 +70,6 @@ jobs:
           import warnings
           warnings.filterwarnings("ignore")
           
-          from pyvirtualdisplay import Display
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
           from selenium.webdriver.common.by import By
@@ -134,16 +135,27 @@ jobs:
           def start_stream(youtube_key, sink_name, stream_index, apps_script_url, duration, stream_title=None):
               os.environ['PULSE_SINK'] = sink_name
               
-              disp1 = Display(visible=0, size=(720, 1280), backend='xvfb')
-              disp1.start()
+              os.system('mkdir -p ~/.vnc')
+              os.system('echo "123456" | vncpasswd -f > ~/.vnc/passwd 2>/dev/null')
+              os.system('chmod 600 ~/.vnc/passwd')
               
-              subprocess.Popen(['unclutter', '-idle', '0', '-display', f":{disp1.display}"])
+              kasm_config = "network:\n  protocol: http\n  websocket_port: 8444\n"
+              with open(os.path.expanduser('~/.vnc/kasmvnc.yaml'), 'w') as f:
+                  f.write(kasm_config)
+                  
+              xstartup = "#!/bin/sh\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nxsetroot -solid black\n"
+              with open(os.path.expanduser('~/.vnc/xstartup'), 'w') as f:
+                  f.write(xstartup)
+              os.system('chmod +x ~/.vnc/xstartup')
               
-              vnc_proc = subprocess.Popen(['x11vnc', '-display', f":{disp1.display}", '-forever', '-nopw', '-listen', 'localhost', '-shared', '-noxdamage', '-noxfixes', '-noxrecord', '-q'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-              novnc_proc = subprocess.Popen(['/usr/share/novnc/utils/launch.sh', '--vnc', 'localhost:5900', '--listen', '6080'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              os.system('vncserver -kill :99 >/dev/null 2>&1')
+              os.system('vncserver :99 -geometry 720x1280 -depth 24')
+              
+              os.environ['DISPLAY'] = ':99'
+              subprocess.Popen(['unclutter', '-idle', '0', '-display', ':99'])
               
               cf_log = open("cloudflared.log", "w")
-              cf_proc = subprocess.Popen(['./cloudflared', 'tunnel', '--url', 'http://localhost:6080'], stderr=cf_log)
+              cf_proc = subprocess.Popen(['./cloudflared', 'tunnel', '--url', 'http://localhost:8444'], stderr=cf_log)
               
               print("⏳ Waiting for Live Control Tunnel to generate link...", flush=True)
               cf_url = None
@@ -160,8 +172,9 @@ jobs:
               
               if cf_url:
                   print("\n" + "="*60, flush=True)
-                  print(f"🎮 رابــــط الـتـحـكــــم الـلـحـظـــي (الـعـب مـن هـنـا):", flush=True)
+                  print(f"🎮 رابــــط الـتـحـكــــم الـلـحـظـــي (KasmVNC WebRTC):", flush=True)
                   print(f"👉 {cf_url}", flush=True)
+                  print(f"🔑 كلمة المرور (Username/Password): kasm_user / 123456", flush=True)
                   print("="*60 + "\n", flush=True)
               else:
                   print("⚠️ Could not fetch Cloudflare link. Please check cloudflared logs.", flush=True)
@@ -194,7 +207,6 @@ jobs:
                   opts.add_argument('--hide-scrollbars')
                   opts.add_argument('--kiosk')
 
-                  os.environ['DISPLAY'] = f":{disp1.display}"
                   driver1 = webdriver.Chrome(options=opts)
                   
                   print("🎙️ Opening Listener in background...", flush=True)
@@ -240,7 +252,7 @@ jobs:
                       '-draw_mouse', '0',
                       '-framerate', '60',
                       '-video_size', '720x1280',
-                      '-i', f":{disp1.display}",
+                      '-i', f":99",
                       '-thread_queue_size', '1024',
                       '-f', 'pulse',
                       '-i', f"{sink_name}.monitor",
@@ -274,14 +286,12 @@ jobs:
               finally:
                   if fan_process: fan_process.terminate()
                   if ffmpeg_proc: ffmpeg_proc.kill()
-                  if vnc_proc: vnc_proc.terminate()
-                  if novnc_proc: novnc_proc.terminate()
                   if cf_proc: cf_proc.terminate()
                   try:
                       if driver1: driver1.quit()
                   except:
                       pass
-                  disp1.stop()
+                  os.system('vncserver -kill :99 >/dev/null 2>&1')
                   print("🛑 Stream ended successfully.", flush=True)
 
           if __name__ == "__main__":
