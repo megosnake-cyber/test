@@ -47,10 +47,9 @@ jobs:
           sudo apt-get update -y
           
           echo "3. Installing Packages & KasmVNC (WebRTC)..."
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends xvfb ffmpeg pulseaudio unclutter wget expect openbox ssl-cert
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends xvfb ffmpeg pulseaudio unclutter wget expect openbox openssl
           wget -q https://github.com/kasmtech/KasmVNC/releases/download/v1.3.2/kasmvncserver_jammy_1.3.2_amd64.deb
           sudo apt-get install -y ./kasmvncserver_jammy_1.3.2_amd64.deb
-          sudo make-ssl-cert generate-default-snakeoil --force-overwrite
           
           echo "4. Setting up Audio..."
           pulseaudio -D --exit-idle-time=-1 --disallow-exit || true
@@ -137,17 +136,25 @@ jobs:
           def start_stream(youtube_key, sink_name, stream_index, apps_script_url, duration, stream_title=None):
               os.environ['PULSE_SINK'] = sink_name
               
+              # تشغيل الشاشة الوهمية
               disp1 = Display(visible=0, size=(720, 1280), backend='xvfb')
               disp1.start()
               os.environ['DISPLAY'] = f":{disp1.display}"
               
+              # إنشاء المجلدات وحل مشكلة الصلاحيات
               os.system('mkdir -p ~/.vnc ~/.kasmvnc')
+              os.system('touch ~/.Xauthority')
               
+              # توليد شهادة أمان محلية لحل مشكلة ssl-cert-snakeoil
+              os.system('openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout ~/.vnc/kasmvnc.key -out ~/.vnc/kasmvnc.pem -subj "/C=EG/ST=Cairo/L=Cairo/O=Snake/CN=localhost" 2>/dev/null')
+              
+              # إلغاء رسالة إعداد بيئة سطح المكتب
               os.system('sudo rm -f /usr/lib/kasmvncserver/select-de.sh')
               os.system('sudo bash -c "echo \'#!/bin/sh\' > /usr/lib/kasmvncserver/select-de.sh"')
               os.system('sudo bash -c "echo \'exit 0\' >> /usr/lib/kasmvncserver/select-de.sh"')
               os.system('sudo chmod +x /usr/lib/kasmvncserver/select-de.sh')
               
+              # إعداد كلمة المرور صامتاً
               expect_script = """#!/usr/bin/expect -f
           spawn kasmvncpasswd -u kasm_user -w
           expect "Password:"
@@ -160,10 +167,16 @@ jobs:
                   f.write(expect_script)
               os.system("chmod +x setup_vnc.exp && ./setup_vnc.exp")
               
-              kasm_config = f"network:\n  protocol: http\n  websocket_port: 8444\n"
+              # إعدادات KasmVNC وتوجيهه لاستخدام الشهادات الجديدة
+              kasm_config = """network:
+            protocol: http
+            websocket_port: 8444
+            ssl:
+              require_ssl: false
+              pem_certificate: /home/runner/.vnc/kasmvnc.pem
+              pem_private_key: /home/runner/.vnc/kasmvnc.key
+          """
               with open(os.path.expanduser('~/.vnc/kasmvnc.yaml'), 'w') as f:
-                  f.write(kasm_config)
-              with open(os.path.expanduser('~/.kasmvnc/kasmvnc.yaml'), 'w') as f:
                   f.write(kasm_config)
                   
               xstartup = """#!/bin/sh
@@ -176,6 +189,7 @@ jobs:
                   f.write(xstartup)
               os.system('chmod +x ~/.vnc/xstartup')
               
+              # تشغيل خادم VNC
               os.system(f'vncserver -kill :{disp1.display} >/dev/null 2>&1')
               os.system(f'vncserver :{disp1.display} -geometry 720x1280 -depth 24')
               
