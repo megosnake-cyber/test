@@ -47,9 +47,10 @@ jobs:
           sudo apt-get update -y
           
           echo "3. Installing Packages & KasmVNC (WebRTC)..."
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends ffmpeg pulseaudio unclutter wget expect openbox
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends xvfb ffmpeg pulseaudio unclutter wget expect openbox ssl-cert
           wget -q https://github.com/kasmtech/KasmVNC/releases/download/v1.3.2/kasmvncserver_jammy_1.3.2_amd64.deb
           sudo apt-get install -y ./kasmvncserver_jammy_1.3.2_amd64.deb
+          sudo make-ssl-cert generate-default-snakeoil --force-overwrite
           
           echo "4. Setting up Audio..."
           pulseaudio -D --exit-idle-time=-1 --disallow-exit || true
@@ -61,7 +62,7 @@ jobs:
           chmod +x cloudflared
 
       - name: Python Setup
-        run: pip install -U urllib3 chardet requests selenium
+        run: pip install -U urllib3 chardet requests selenium pyvirtualdisplay
 
       - name: Create Python Script
         run: |
@@ -70,6 +71,7 @@ jobs:
           import warnings
           warnings.filterwarnings("ignore")
           
+          from pyvirtualdisplay import Display
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
           from selenium.webdriver.common.by import By
@@ -135,9 +137,12 @@ jobs:
           def start_stream(youtube_key, sink_name, stream_index, apps_script_url, duration, stream_title=None):
               os.environ['PULSE_SINK'] = sink_name
               
+              disp1 = Display(visible=0, size=(720, 1280), backend='xvfb')
+              disp1.start()
+              os.environ['DISPLAY'] = f":{disp1.display}"
+              
               os.system('mkdir -p ~/.vnc ~/.kasmvnc')
               
-              # القضاء على رسالة اختيار بيئة سطح المكتب بشكل جذري
               os.system('sudo rm -f /usr/lib/kasmvncserver/select-de.sh')
               os.system('sudo bash -c "echo \'#!/bin/sh\' > /usr/lib/kasmvncserver/select-de.sh"')
               os.system('sudo bash -c "echo \'exit 0\' >> /usr/lib/kasmvncserver/select-de.sh"')
@@ -155,7 +160,7 @@ jobs:
                   f.write(expect_script)
               os.system("chmod +x setup_vnc.exp && ./setup_vnc.exp")
               
-              kasm_config = "network:\n  protocol: http\n  websocket_port: 8444\n"
+              kasm_config = f"network:\n  protocol: http\n  websocket_port: 8444\n"
               with open(os.path.expanduser('~/.vnc/kasmvnc.yaml'), 'w') as f:
                   f.write(kasm_config)
               with open(os.path.expanduser('~/.kasmvnc/kasmvnc.yaml'), 'w') as f:
@@ -171,11 +176,10 @@ jobs:
                   f.write(xstartup)
               os.system('chmod +x ~/.vnc/xstartup')
               
-              os.system('vncserver -kill :99 >/dev/null 2>&1')
-              os.system('vncserver :99 -geometry 720x1280 -depth 24')
+              os.system(f'vncserver -kill :{disp1.display} >/dev/null 2>&1')
+              os.system(f'vncserver :{disp1.display} -geometry 720x1280 -depth 24')
               
-              os.environ['DISPLAY'] = ':99'
-              subprocess.Popen(['unclutter', '-idle', '0', '-display', ':99'])
+              subprocess.Popen(['unclutter', '-idle', '0', '-display', f":{disp1.display}"])
               
               cf_log = open("cloudflared.log", "w")
               cf_proc = subprocess.Popen(['./cloudflared', 'tunnel', '--url', 'http://localhost:8444'], stderr=cf_log)
@@ -275,7 +279,7 @@ jobs:
                       '-draw_mouse', '0',
                       '-framerate', '60',
                       '-video_size', '720x1280',
-                      '-i', f":99",
+                      '-i', f":{disp1.display}",
                       '-thread_queue_size', '1024',
                       '-f', 'pulse',
                       '-i', f"{sink_name}.monitor",
@@ -314,7 +318,7 @@ jobs:
                       if driver1: driver1.quit()
                   except:
                       pass
-                  os.system('vncserver -kill :99 >/dev/null 2>&1')
+                  disp1.stop()
                   print("🛑 Stream ended successfully.", flush=True)
 
           if __name__ == "__main__":
