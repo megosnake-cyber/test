@@ -47,7 +47,7 @@ jobs:
           sudo apt-get update -y
           
           echo "3. Installing Packages & KasmVNC (WebRTC)..."
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends ffmpeg pulseaudio unclutter wget
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends ffmpeg pulseaudio unclutter wget expect
           wget -q https://github.com/kasmtech/KasmVNC/releases/download/v1.3.2/kasmvncserver_jammy_1.3.2_amd64.deb
           sudo apt-get install -y ./kasmvncserver_jammy_1.3.2_amd64.deb
           
@@ -136,8 +136,17 @@ jobs:
               os.environ['PULSE_SINK'] = sink_name
               
               os.system('mkdir -p ~/.vnc')
-              os.system('echo "123456" | vncpasswd -f > ~/.vnc/passwd 2>/dev/null')
-              os.system('chmod 600 ~/.vnc/passwd')
+              expect_script = """#!/usr/bin/expect -f
+          spawn kasmvncpasswd -u kasm_user -w
+          expect "Password:"
+          send "123456\\r"
+          expect "Verify:"
+          send "123456\\r"
+          expect eof
+          """
+              with open("setup_vnc.exp", "w") as f:
+                  f.write(expect_script)
+              os.system("chmod +x setup_vnc.exp && ./setup_vnc.exp")
               
               kasm_config = "network:\n  protocol: http\n  websocket_port: 8444\n"
               with open(os.path.expanduser('~/.vnc/kasmvnc.yaml'), 'w') as f:
