@@ -47,7 +47,7 @@ jobs:
           sudo apt-get update -y
           
           echo "3. Installing Packages & KasmVNC (WebRTC)..."
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends ffmpeg pulseaudio unclutter wget expect
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends ffmpeg pulseaudio unclutter wget expect openbox
           wget -q https://github.com/kasmtech/KasmVNC/releases/download/v1.3.2/kasmvncserver_jammy_1.3.2_amd64.deb
           sudo apt-get install -y ./kasmvncserver_jammy_1.3.2_amd64.deb
           
@@ -135,7 +135,14 @@ jobs:
           def start_stream(youtube_key, sink_name, stream_index, apps_script_url, duration, stream_title=None):
               os.environ['PULSE_SINK'] = sink_name
               
-              os.system('mkdir -p ~/.vnc')
+              os.system('mkdir -p ~/.vnc ~/.kasmvnc')
+              
+              # القضاء على رسالة اختيار بيئة سطح المكتب بشكل جذري
+              os.system('sudo rm -f /usr/lib/kasmvncserver/select-de.sh')
+              os.system('sudo bash -c "echo \'#!/bin/sh\' > /usr/lib/kasmvncserver/select-de.sh"')
+              os.system('sudo bash -c "echo \'exit 0\' >> /usr/lib/kasmvncserver/select-de.sh"')
+              os.system('sudo chmod +x /usr/lib/kasmvncserver/select-de.sh')
+              
               expect_script = """#!/usr/bin/expect -f
           spawn kasmvncpasswd -u kasm_user -w
           expect "Password:"
@@ -151,8 +158,15 @@ jobs:
               kasm_config = "network:\n  protocol: http\n  websocket_port: 8444\n"
               with open(os.path.expanduser('~/.vnc/kasmvnc.yaml'), 'w') as f:
                   f.write(kasm_config)
+              with open(os.path.expanduser('~/.kasmvnc/kasmvnc.yaml'), 'w') as f:
+                  f.write(kasm_config)
                   
-              xstartup = "#!/bin/sh\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nxsetroot -solid black\n"
+              xstartup = """#!/bin/sh
+          unset SESSION_MANAGER
+          unset DBUS_SESSION_BUS_ADDRESS
+          xsetroot -solid black
+          openbox-session &
+          """
               with open(os.path.expanduser('~/.vnc/xstartup'), 'w') as f:
                   f.write(xstartup)
               os.system('chmod +x ~/.vnc/xstartup')
