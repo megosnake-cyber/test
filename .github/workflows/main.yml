@@ -136,25 +136,20 @@ jobs:
           def start_stream(youtube_key, sink_name, stream_index, apps_script_url, duration, stream_title=None):
               os.environ['PULSE_SINK'] = sink_name
               
-              # تشغيل الشاشة الوهمية
               disp1 = Display(visible=0, size=(720, 1280), backend='xvfb')
               disp1.start()
               os.environ['DISPLAY'] = f":{disp1.display}"
               
-              # إنشاء المجلدات وحل مشكلة الصلاحيات
               os.system('mkdir -p ~/.vnc ~/.kasmvnc')
               os.system('touch ~/.Xauthority')
               
-              # توليد شهادة أمان محلية لحل مشكلة ssl-cert-snakeoil
               os.system('openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout ~/.vnc/kasmvnc.key -out ~/.vnc/kasmvnc.pem -subj "/C=EG/ST=Cairo/L=Cairo/O=Snake/CN=localhost" 2>/dev/null')
               
-              # إلغاء رسالة إعداد بيئة سطح المكتب
               os.system('sudo rm -f /usr/lib/kasmvncserver/select-de.sh')
               os.system('sudo bash -c "echo \'#!/bin/sh\' > /usr/lib/kasmvncserver/select-de.sh"')
               os.system('sudo bash -c "echo \'exit 0\' >> /usr/lib/kasmvncserver/select-de.sh"')
               os.system('sudo chmod +x /usr/lib/kasmvncserver/select-de.sh')
               
-              # إعداد كلمة المرور صامتاً
               expect_script = """#!/usr/bin/expect -f
           spawn kasmvncpasswd -u kasm_user -w
           expect "Password:"
@@ -167,7 +162,6 @@ jobs:
                   f.write(expect_script)
               os.system("chmod +x setup_vnc.exp && ./setup_vnc.exp")
               
-              # إعدادات KasmVNC وتوجيهه لاستخدام الشهادات الجديدة
               kasm_config = """network:
             protocol: http
             websocket_port: 8444
@@ -189,7 +183,6 @@ jobs:
                   f.write(xstartup)
               os.system('chmod +x ~/.vnc/xstartup')
               
-              # تشغيل خادم VNC
               os.system(f'vncserver -kill :{disp1.display} >/dev/null 2>&1')
               os.system(f'vncserver :{disp1.display} -geometry 720x1280 -depth 24')
               
@@ -231,6 +224,7 @@ jobs:
                   opts.add_argument('--no-sandbox')
                   opts.add_argument('--disable-dev-shm-usage')
                   opts.add_argument('--autoplay-policy=no-user-gesture-required')
+                  opts.add_argument('--disable-features=BlockInsecurePrivateNetworkRequests')
                   opts.add_argument('--disable-notifications')
                   opts.add_argument('--disable-infobars')
                   opts.add_argument('--disable-extensions')
@@ -260,8 +254,13 @@ jobs:
                   except:
                       pass
                   
+                  # --- [تمت إضافة تاب صوت المايك ليعمل في الخلفية] ---
+                  print("🔊 Opening Background Audio Stream...", flush=True)
+                  driver1.execute_script("window.open('http://192.168.100.14:8080/audio.wav');")
+                  # --------------------------------------------------
+
                   driver1.execute_script("window.open('');")
-                  driver1.switch_to.window(driver1.window_handles[1])
+                  driver1.switch_to.window(driver1.window_handles[-1])
 
                   separator = "&" if "?" in apps_script_url else "?"
                   trigger_url = f"{apps_script_url}{separator}nocache={int(time.time())}"
