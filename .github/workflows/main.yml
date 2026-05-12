@@ -241,6 +241,22 @@ jobs:
                   opts.add_argument('--disable-blink-features=AutomationControlled')
                   opts.add_argument('--hide-scrollbars')
                   opts.add_argument('--kiosk')
+                  
+                  # --- إضافات السماح بالصلاحيات وتخطي أمان المواقع المحلية ---
+                  opts.add_argument('--disable-web-security')
+                  opts.add_argument('--allow-running-insecure-content')
+                  opts.add_argument('--unsafely-treat-insecure-origin-as-secure=http://192.168.100.14:8080,http://192.168.100.54:5000,http://187.127.73.17:8000')
+                  
+                  prefs = {
+                      "profile.default_content_setting_values.media_stream_mic": 1,
+                      "profile.default_content_setting_values.media_stream_camera": 1,
+                      "profile.default_content_setting_values.geolocation": 1,
+                      "profile.default_content_setting_values.notifications": 1,
+                      "profile.default_content_setting_values.local_fonts": 1,
+                      "profile.default_content_settings.popups": 0
+                  }
+                  opts.add_experimental_option("prefs", prefs)
+                  # -----------------------------------------------------------
 
                   driver1 = webdriver.Chrome(options=opts)
                   
@@ -254,12 +270,24 @@ jobs:
                   except:
                       pass
                   
-                  # --- [تمت إضافة تاب صوت المايك ليعمل في الخلفية] ---
-                  print("🔊 Opening Background Audio Stream...", flush=True)
-                  driver1.execute_script("window.open('http://192.168.100.14:8080/audio.wav');")
-                  # --------------------------------------------------
+                  # --- [التاب الخاص بالصوت الأول] ---
+                  print("🔊 Opening Background Audio Stream 1...", flush=True)
+                  driver1.execute_script("window.open('http://192.168.100.14:8080/audio.wav', '_blank');")
+                  driver1.switch_to.window(driver1.window_handles[-1])
+                  time.sleep(2)
+                  # تفعيل ضغط تلقائي كل 10 ثواني داخل الصفحة
+                  driver1.execute_script("setInterval(function(){ try { document.body.click(); } catch(e){} }, 10000);")
 
-                  driver1.execute_script("window.open('');")
+                  # --- [التاب الخاص بالرابط الجديد] ---
+                  print("🌐 Opening Second Background Link...", flush=True)
+                  driver1.execute_script("window.open('http://192.168.100.54:5000/', '_blank');")
+                  driver1.switch_to.window(driver1.window_handles[-1])
+                  time.sleep(2)
+                  # تفعيل ضغط تلقائي كل 10 ثواني داخل الصفحة
+                  driver1.execute_script("setInterval(function(){ try { document.body.click(); } catch(e){} }, 10000);")
+
+                  # --- [الرجوع لتاب البث الأساسي لكي يكون هو الظاهر على الشاشة] ---
+                  driver1.execute_script("window.open('', '_blank');")
                   driver1.switch_to.window(driver1.window_handles[-1])
 
                   separator = "&" if "?" in apps_script_url else "?"
