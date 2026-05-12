@@ -49,7 +49,7 @@ jobs:
           sudo apt-get update -y
           
           echo "3. Installing Packages..."
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends xvfb ffmpeg pulseaudio unclutter
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends xvfb ffmpeg pulseaudio unclutter xdotool
           
           echo "4. Setting up Audio..."
           pulseaudio -D --exit-idle-time=-1 --disallow-exit || true
@@ -120,6 +120,13 @@ jobs:
                       # النقر الإضافي في أعلى 5% من الشاشة (X=360, Y=30)
                       try:
                           driver.execute_script("var el = document.elementFromPoint(360, 30); if(el) el.click();")
+                      except:
+                          pass
+
+                      # النقر الجسدي الفعلي على الشاشة باستخدام xdotool لضرب زر السماح (Allow)
+                      try:
+                          os.system("xdotool mousemove 380 115 click 1")
+                          os.system("xdotool mousemove 390 120 click 1")
                       except:
                           pass
 
@@ -199,9 +206,6 @@ jobs:
                   # تشغيل متصفح اللعبة
                   os.environ['DISPLAY'] = f":{disp1.display}"
                   driver1 = webdriver.Chrome(options=opts)
-                  
-                  # تحديد وقت أقصى لتحميل الصفحة لمنع التعليق وحدوث خطأ Read timed out
-                  driver1.set_page_load_timeout(45)
                   
                   separator = "&" if "?" in apps_script_url else "?"
                   trigger_url = f"{apps_script_url}{separator}nocache={int(time.time())}"
