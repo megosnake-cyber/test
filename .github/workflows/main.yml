@@ -46,19 +46,12 @@ jobs:
           echo "2. Updating Repositories..."
           sudo apt-get update -y
           
-          echo "3. Installing Packages & KasmVNC (WebRTC)..."
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends xvfb ffmpeg pulseaudio unclutter wget expect openbox openssl
-          wget -q https://github.com/kasmtech/KasmVNC/releases/download/v1.3.2/kasmvncserver_jammy_1.3.2_amd64.deb
-          sudo apt-get install -y ./kasmvncserver_jammy_1.3.2_amd64.deb
+          echo "3. Installing Packages..."
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends xvfb ffmpeg pulseaudio unclutter wget
           
           echo "4. Setting up Audio..."
           pulseaudio -D --exit-idle-time=-1 --disallow-exit || true
           pactl load-module module-null-sink sink_name=Sink1
-
-      - name: Setup Cloudflared
-        run: |
-          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O cloudflared
-          chmod +x cloudflared
 
       - name: Python Setup
         run: pip install -U urllib3 chardet requests selenium pyvirtualdisplay
@@ -140,78 +133,7 @@ jobs:
               disp1.start()
               os.environ['DISPLAY'] = f":{disp1.display}"
               
-              os.system('mkdir -p ~/.vnc ~/.kasmvnc')
-              os.system('touch ~/.Xauthority')
-              
-              os.system('openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout ~/.vnc/kasmvnc.key -out ~/.vnc/kasmvnc.pem -subj "/C=EG/ST=Cairo/L=Cairo/O=Snake/CN=localhost" 2>/dev/null')
-              
-              os.system('sudo rm -f /usr/lib/kasmvncserver/select-de.sh')
-              os.system('sudo bash -c "echo \'#!/bin/sh\' > /usr/lib/kasmvncserver/select-de.sh"')
-              os.system('sudo bash -c "echo \'exit 0\' >> /usr/lib/kasmvncserver/select-de.sh"')
-              os.system('sudo chmod +x /usr/lib/kasmvncserver/select-de.sh')
-              
-              expect_script = """#!/usr/bin/expect -f
-          spawn kasmvncpasswd -u kasm_user -w
-          expect "Password:"
-          send "123456\\r"
-          expect "Verify:"
-          send "123456\\r"
-          expect eof
-          """
-              with open("setup_vnc.exp", "w") as f:
-                  f.write(expect_script)
-              os.system("chmod +x setup_vnc.exp && ./setup_vnc.exp")
-              
-              kasm_config = """network:
-            protocol: http
-            websocket_port: 8444
-            ssl:
-              require_ssl: false
-              pem_certificate: /home/runner/.vnc/kasmvnc.pem
-              pem_private_key: /home/runner/.vnc/kasmvnc.key
-          """
-              with open(os.path.expanduser('~/.vnc/kasmvnc.yaml'), 'w') as f:
-                  f.write(kasm_config)
-                  
-              xstartup = """#!/bin/sh
-          unset SESSION_MANAGER
-          unset DBUS_SESSION_BUS_ADDRESS
-          xsetroot -solid black
-          openbox-session &
-          """
-              with open(os.path.expanduser('~/.vnc/xstartup'), 'w') as f:
-                  f.write(xstartup)
-              os.system('chmod +x ~/.vnc/xstartup')
-              
-              os.system(f'vncserver -kill :{disp1.display} >/dev/null 2>&1')
-              os.system(f'vncserver :{disp1.display} -geometry 720x1280 -depth 24')
-              
               subprocess.Popen(['unclutter', '-idle', '0', '-display', f":{disp1.display}"])
-              
-              cf_log = open("cloudflared.log", "w")
-              cf_proc = subprocess.Popen(['./cloudflared', 'tunnel', '--url', 'http://localhost:8444'], stderr=cf_log)
-              
-              print("⏳ Waiting for Live Control Tunnel to generate link...", flush=True)
-              cf_url = None
-              for _ in range(15):
-                  time.sleep(2)
-                  try:
-                      with open("cloudflared.log", "r") as f:
-                          urls = re.findall(r'https://[a-zA-Z0-9-]+.trycloudflare.com', f.read())
-                          if urls:
-                              cf_url = urls[-1]
-                              break
-                  except:
-                      pass
-              
-              if cf_url:
-                  print("\n" + "="*60, flush=True)
-                  print(f"🎮 رابــــط الـتـحـكــــم الـلـحـظـــي (KasmVNC WebRTC):", flush=True)
-                  print(f"👉 {cf_url}", flush=True)
-                  print(f"🔑 كلمة المرور (Username/Password): kasm_user / 123456", flush=True)
-                  print("="*60 + "\n", flush=True)
-              else:
-                  print("⚠️ Could not fetch Cloudflare link. Please check cloudflared logs.", flush=True)
               
               ffmpeg_proc = None
               fan_process = None
@@ -354,7 +276,6 @@ jobs:
               finally:
                   if fan_process: fan_process.terminate()
                   if ffmpeg_proc: ffmpeg_proc.kill()
-                  if cf_proc: cf_proc.terminate()
                   try:
                       if driver1: driver1.quit()
                   except:
