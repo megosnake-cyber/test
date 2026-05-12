@@ -169,6 +169,7 @@ jobs:
               try:
                   # إعدادات Chrome لتقليل استهلاك المعالج لأقصى درجة
                   opts = Options()
+                  opts.add_argument('--user-agent=ngrok-bypass-bot/1.0')
                   opts.add_argument('--no-sandbox')
                   opts.add_argument('--disable-dev-shm-usage')
                   opts.add_argument('--autoplay-policy=no-user-gesture-required')
