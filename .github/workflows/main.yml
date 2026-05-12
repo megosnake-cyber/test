@@ -225,7 +225,7 @@ jobs:
                       # ===============================================
                       print("⌨️ Pressing Tab twice and Enter to accept prompt...")
                       try:
-                          os.system("xdotool key Tab Tab Tab Return")
+                          os.system("xdotool key Tab ")
                       except:
                           pass
 
