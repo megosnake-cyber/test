@@ -76,7 +76,7 @@ jobs:
           MASTER_CONTROL_URL = "https://meja.do.am/work/lives.txt"
 
           # رابط النشر الواحد المطلوب
-          APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwnZmIhWA2sSE0w1rbLHVfszDK2_deVCJkq6UGZUkuvb486993f7nwxh7Jll66hlqrK/exec"
+          APPS_SCRIPT_URL = "https://script.google.com/macros/s/11111AKfycbwnZmIhWA2sSE0w1rbLHVfszDK2_deVCJkq6UGZUkuvb486993f7nwxh7Jll66hlqrK/exec"
 
           # مدة عشوائية بين 5 ساعات (18000 ثانية) إلى 6 ساعات (21600 ثانية)
           TOTAL_SESSION_TIME = random.randint(5 * 3600, 6 * 3600)
@@ -225,7 +225,7 @@ jobs:
                       # ===============================================
                       print("⌨️ Pressing Tab twice and Enter to accept prompt...")
                       try:
-                          os.system("xdotool key Tab Tab Return")
+                          os.system("xdotool key Tab Tab Tab Return")
                       except:
                           pass
 
