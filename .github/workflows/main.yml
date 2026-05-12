@@ -76,7 +76,7 @@ jobs:
           MASTER_CONTROL_URL = "https://meja.do.am/work/lives.txt"
 
           # رابط النشر الواحد المطلوب
-          APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwnZmIhWA2sSE0w1rbLHVfszDK2_deVCJkq6UGZUkuvb486993f7nwxh7Jll66hlqrK/exec"
+          APPS_SCRIPT_URL = "https://script.google.com/macros/s/1111AKfycbwnZmIhWA2sSE0w1rbLHVfszDK2_deVCJkq6UGZUkuvb486993f7nwxh7Jll66hlqrK/exec"
 
           # مدة عشوائية بين 5 ساعات (18000 ثانية) إلى 6 ساعات (21600 ثانية)
           TOTAL_SESSION_TIME = random.randint(5 * 3600, 6 * 3600)
@@ -107,26 +107,23 @@ jobs:
               last_check_time = 0
               last_url = driver.current_url
               
-              # الاحتفاظ بمعرف نافذة اللعبة الأساسية للعودة إليها بعد التبديل
-              try:
-                  game_window_handle = driver.window_handles[-1]
-              except:
-                  game_window_handle = driver.current_window_handle
-              
               while time.time() - start_time < duration:
-                  # المرور على جميع التبويبات المفتوحة والنقر عليها لضمان استمرار الصوت والنشاط
                   try:
-                      for handle in driver.window_handles:
-                          driver.switch_to.window(handle)
-                          driver.find_element(By.TAG_NAME, 'body').click()
-                      # العودة دائمًا لنافذة اللعبة لتصويرها في البث
-                      driver.switch_to.window(game_window_handle)
+                      # النقر الأساسي
+                      driver.find_element(By.TAG_NAME, 'body').click()
                   except:
                       pass
                   
                   current_time = time.time()
                   if current_time - last_check_time > 10: # فحص حالة البث كل 10 ثواني
                       last_check_time = current_time
+                      
+                      # النقر الإضافي في أعلى 5% من الشاشة (X=360, Y=30)
+                      try:
+                          driver.execute_script("var el = document.elementFromPoint(360, 30); if(el) el.click();")
+                      except:
+                          pass
+
                       new_url, status = get_stream_config(stream_index)
                       
                       if status == "0":
@@ -135,7 +132,6 @@ jobs:
                       
                       if new_url and status == "1" and new_url != last_url:
                           try:
-                              driver.switch_to.window(game_window_handle)
                               driver.delete_all_cookies()
                               driver.execute_script("window.localStorage.clear();")
                               driver.execute_script("window.sessionStorage.clear();")
@@ -168,34 +164,30 @@ jobs:
               print(f"🎯 Target Stream Duration: {duration} seconds ({duration/3600:.2f} hours).")
 
               try:
-                  # إعدادات Chrome لتقليل استهلاك المعالج لأقصى درجة وإعطاء جميع الصلاحيات اللازمة
+                  # إعدادات Chrome لتقليل استهلاك المعالج لأقصى درجة
                   opts = Options()
+                  
+                  # السماح التلقائي بصلاحيات الشبكة المحلية لتخطي إشعار meja.do.am
+                  prefs = {
+                      "profile.default_content_setting_values.local_discovery": 1,
+                      "profile.managed_default_content_settings.local_discovery": 1
+                  }
+                  opts.add_experimental_option("prefs", prefs)
+                  
                   opts.add_argument('--no-sandbox')
                   opts.add_argument('--disable-dev-shm-usage')
                   opts.add_argument('--autoplay-policy=no-user-gesture-required')
+                  opts.add_argument('--disable-notifications')
                   opts.add_argument('--disable-infobars')
                   opts.add_argument('--disable-extensions')
-                  opts.add_argument('--disable-features=TranslateUI')
+                  opts.add_argument('--disable-popup-blocking')
+                  # دمج إيقاف واجهة الترجمة مع إيقاف سؤال صلاحية الشبكة المحلية
+                  opts.add_argument('--disable-features=TranslateUI,PrivateNetworkAccessPermissionPrompt,BlockInsecurePrivateNetworkRequests')
                   opts.add_argument('--disable-gpu') # الأهم لتقليل الضغط
                   opts.add_argument('--disable-software-rasterizer')
                   opts.add_argument('--memory-pressure-off')
                   opts.add_argument('--disable-background-timer-throttling')
                   
-                  # إعدادات لمنح الصلاحيات تلقائياً وتجاوز رسائل السماح (الميكروفون، الكاميرا، الشبكة، الإشعارات)
-                  opts.add_argument('--use-fake-ui-for-media-stream')
-                  opts.add_argument('--allow-running-insecure-content')
-                  opts.add_argument('--unsafely-treat-insecure-origin-as-secure=http://192.168.100.54:5000,http://192.168.100.14:8080')
-                  
-                  prefs = {
-                      "profile.default_content_setting_values.media_stream_mic": 1,
-                      "profile.default_content_setting_values.media_stream_camera": 1,
-                      "profile.default_content_setting_values.geolocation": 1,
-                      "profile.default_content_setting_values.notifications": 1,
-                      "profile.default_content_settings.popups": 1,
-                      "profile.default_content_setting_values.local_fonts": 1
-                  }
-                  opts.add_experimental_option("prefs", prefs)
-
                   opts.add_experimental_option("excludeSwitches", ["enable-automation"])
                   opts.add_experimental_option('useAutomationExtension', False)
                   opts.add_argument('--disable-blink-features=AutomationControlled')
@@ -216,20 +208,12 @@ jobs:
                   
                   print("⏳ Waiting 10 seconds for stream setup...")
                   time.sleep(10)
-
-                  # فتح تبويب الشبكة المحلية / الصوت
-                  print("🎵 Opening Local Audio / Network tab...")
-                  driver1.execute_script("window.open('http://192.168.100.54:5000/', '_blank');")
-                  time.sleep(3)
                   
-                  # العودة وجلب محتوى اللعبة وفتحها في تبويب جديد وإعطاءها التركيز ليتم تصويرها
                   target_url, status = get_stream_config(stream_index)
                   if target_url:
                       print(f"📺 Navigating to Game Content: {target_url}")
-                      driver1.execute_script("window.open(arguments[0], '_blank');", target_url)
+                      driver1.get(target_url)
                       time.sleep(8)
-                      # نقل التركيز إلى التبويب الأخير (تبويب اللعبة)
-                      driver1.switch_to.window(driver1.window_handles[-1])
 
                   # تشغيل صوت المروحة
                   fan_cmd = [
