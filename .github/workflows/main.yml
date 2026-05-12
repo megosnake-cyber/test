@@ -8,6 +8,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # نظام التحكم في تشغيل أو إيقاف البث (1 = شغال | 0 = متوقف)
   ENABLE_STREAM: 1
 
 jobs:
@@ -38,6 +39,7 @@ jobs:
       - name: System Setup
         run: |
           echo "1. Fixing Mirror Links..."
+          # بدلاً من حذف الملف، سنقوم بكتابة الرابط السريع بداخله ليعمل النظام بدون مشاكل
           if [ -f /etc/apt/apt-mirrors.txt ]; then
             echo "http://archive.ubuntu.com/ubuntu/" | sudo tee /etc/apt/apt-mirrors.txt
           fi
@@ -47,7 +49,7 @@ jobs:
           sudo apt-get update -y
           
           echo "3. Installing Packages..."
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends xvfb ffmpeg pulseaudio unclutter wget
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends xvfb ffmpeg pulseaudio unclutter
           
           echo "4. Setting up Audio..."
           pulseaudio -D --exit-idle-time=-1 --disallow-exit || true
@@ -59,7 +61,7 @@ jobs:
       - name: Create Python Script
         run: |
           cat << 'EOF' > main.py
-          import os, subprocess, time, requests, signal, random, urllib.parse, sys, re
+          import os, subprocess, time, requests, signal, random, urllib.parse, sys
           import warnings
           warnings.filterwarnings("ignore")
           
@@ -68,9 +70,18 @@ jobs:
           from selenium.webdriver.chrome.options import Options
           from selenium.webdriver.common.by import By
 
+          # ==========================================
+          # إعدادات البث والمروحة وروابط التحكم
+          # ==========================================
           MASTER_CONTROL_URL = "https://meja.do.am/work/lives.txt"
-          APPS_SCRIPT_URL = "https://script.google.com/macros/s/1111AKfycbwnZmIhWA2sSE0w1rbLHVfszDK2_deVCJkq6UGZUkuvb486993f7nwxh7Jll66hlqrK/exec"
+
+          # رابط النشر الواحد المطلوب
+          APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwnZmIhWA2sSE0w1rbLHVfszDK2_deVCJkq6UGZUkuvb486993f7nwxh7Jll66hlqrK/exec"
+
+          # مدة عشوائية بين 5 ساعات (18000 ثانية) إلى 6 ساعات (21600 ثانية)
           TOTAL_SESSION_TIME = random.randint(5 * 3600, 6 * 3600)
+
+          # تحكم في صوت مروحة الكمبيوتر
           FAN_VOLUME = 0.08 
 
           def kill_all(signum, frame):
@@ -86,9 +97,9 @@ jobs:
                   if index - 1 < len(lines):
                       parts = lines[index - 1].split()
                       if len(parts) >= 2:
-                          return parts[0], parts[1]
+                          return parts[0], parts[1] # إرجاع الرابط، وحالة البث (0 أو 1)
               except Exception as e:
-                  pass
+                  print(f"Error reading control file: {e}")
               return None, None
 
           def active_wait(driver, duration, stream_index):
@@ -96,23 +107,35 @@ jobs:
               last_check_time = 0
               last_url = driver.current_url
               
+              # الاحتفاظ بمعرف نافذة اللعبة الأساسية للعودة إليها بعد التبديل
+              try:
+                  game_window_handle = driver.window_handles[-1]
+              except:
+                  game_window_handle = driver.current_window_handle
+              
               while time.time() - start_time < duration:
+                  # المرور على جميع التبويبات المفتوحة والنقر عليها لضمان استمرار الصوت والنشاط
                   try:
-                      driver.find_element(By.TAG_NAME, 'body').click()
+                      for handle in driver.window_handles:
+                          driver.switch_to.window(handle)
+                          driver.find_element(By.TAG_NAME, 'body').click()
+                      # العودة دائمًا لنافذة اللعبة لتصويرها في البث
+                      driver.switch_to.window(game_window_handle)
                   except:
                       pass
                   
                   current_time = time.time()
-                  if current_time - last_check_time > 10:
+                  if current_time - last_check_time > 10: # فحص حالة البث كل 10 ثواني
                       last_check_time = current_time
                       new_url, status = get_stream_config(stream_index)
                       
                       if status == "0":
-                          print(f"🛑 Control file requested STOP (status=0). Ending stream...", flush=True)
-                          break
+                          print(f"🛑 Control file requested STOP (status=0). Ending stream...")
+                          break # إنهاء حلقة الانتظار لإيقاف البث فوراً
                       
                       if new_url and status == "1" and new_url != last_url:
                           try:
+                              driver.switch_to.window(game_window_handle)
                               driver.delete_all_cookies()
                               driver.execute_script("window.localStorage.clear();")
                               driver.execute_script("window.sessionStorage.clear();")
@@ -120,18 +143,21 @@ jobs:
                               driver.execute_cdp_cmd('Network.clearBrowserCookies', {})
                               driver.get(new_url)
                               last_url = new_url
-                              print(f"🔄 URL updated dynamically to: {new_url}", flush=True)
-                          except:
+                              print(f"🔄 URL updated dynamically to: {new_url}")
+                          except Exception as e:
                               pass
                   
                   time.sleep(5)
 
+          # ==========================================
+          # دالة البث الرئيسية 
+          # ==========================================
           def start_stream(youtube_key, sink_name, stream_index, apps_script_url, duration, stream_title=None):
               os.environ['PULSE_SINK'] = sink_name
               
+              # الشاشة الخاصة باللعبة بمقاس 720x1280 بالطول
               disp1 = Display(visible=0, size=(720, 1280), backend='xvfb')
               disp1.start()
-              os.environ['DISPLAY'] = f":{disp1.display}"
               
               subprocess.Popen(['unclutter', '-idle', '0', '-display', f":{disp1.display}"])
               
@@ -139,92 +165,73 @@ jobs:
               fan_process = None
               driver1 = None
               
-              print(f"🎯 Target Stream Duration: {duration} seconds.", flush=True)
+              print(f"🎯 Target Stream Duration: {duration} seconds ({duration/3600:.2f} hours).")
 
               try:
+                  # إعدادات Chrome لتقليل استهلاك المعالج لأقصى درجة وإعطاء جميع الصلاحيات اللازمة
                   opts = Options()
                   opts.add_argument('--no-sandbox')
                   opts.add_argument('--disable-dev-shm-usage')
                   opts.add_argument('--autoplay-policy=no-user-gesture-required')
-                  opts.add_argument('--disable-features=BlockInsecurePrivateNetworkRequests')
-                  opts.add_argument('--disable-notifications')
                   opts.add_argument('--disable-infobars')
                   opts.add_argument('--disable-extensions')
-                  opts.add_argument('--disable-popup-blocking')
                   opts.add_argument('--disable-features=TranslateUI')
-                  opts.add_argument('--disable-gpu')
+                  opts.add_argument('--disable-gpu') # الأهم لتقليل الضغط
                   opts.add_argument('--disable-software-rasterizer')
                   opts.add_argument('--memory-pressure-off')
                   opts.add_argument('--disable-background-timer-throttling')
-                  opts.add_argument('--disable-renderer-backgrounding')
-                  opts.add_argument('--disable-backgrounding-occluded-windows')
-                  opts.add_experimental_option("excludeSwitches", ["enable-automation"])
-                  opts.add_experimental_option('useAutomationExtension', False)
-                  opts.add_argument('--disable-blink-features=AutomationControlled')
-                  opts.add_argument('--hide-scrollbars')
-                  opts.add_argument('--kiosk')
                   
-                  # --- إضافات السماح بالصلاحيات وتخطي أمان المواقع المحلية ---
-                  opts.add_argument('--disable-web-security')
+                  # إعدادات لمنح الصلاحيات تلقائياً وتجاوز رسائل السماح (الميكروفون، الكاميرا، الشبكة، الإشعارات)
+                  opts.add_argument('--use-fake-ui-for-media-stream')
                   opts.add_argument('--allow-running-insecure-content')
-                  opts.add_argument('--unsafely-treat-insecure-origin-as-secure=http://192.168.100.14:8080,http://192.168.100.54:5000,http://187.127.73.17:8000')
+                  opts.add_argument('--unsafely-treat-insecure-origin-as-secure=http://192.168.100.54:5000,http://192.168.100.14:8080')
                   
                   prefs = {
                       "profile.default_content_setting_values.media_stream_mic": 1,
                       "profile.default_content_setting_values.media_stream_camera": 1,
                       "profile.default_content_setting_values.geolocation": 1,
                       "profile.default_content_setting_values.notifications": 1,
-                      "profile.default_content_setting_values.local_fonts": 1,
-                      "profile.default_content_settings.popups": 0
+                      "profile.default_content_settings.popups": 1,
+                      "profile.default_content_setting_values.local_fonts": 1
                   }
                   opts.add_experimental_option("prefs", prefs)
-                  # -----------------------------------------------------------
 
+                  opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+                  opts.add_experimental_option('useAutomationExtension', False)
+                  opts.add_argument('--disable-blink-features=AutomationControlled')
+                  opts.add_argument('--hide-scrollbars')
+                  opts.add_argument('--kiosk')
+
+                  # تشغيل متصفح اللعبة
+                  os.environ['DISPLAY'] = f":{disp1.display}"
                   driver1 = webdriver.Chrome(options=opts)
                   
-                  print("🎙️ Opening Listener in background...", flush=True)
-                  driver1.get("")
-                  time.sleep(3)
-                  
-                  try:
-                      driver1.find_element(By.ID, 'unlock-btn').click()
-                      print("✅ Listener Audio Context Activated.", flush=True)
-                  except:
-                      pass
-                  
-                  # --- [التاب الخاص بالصوت الأول] ---
-                  print("🔊 Opening Background Audio Stream 1...", flush=True)
-                  driver1.execute_script("window.open('http://192.168.100.14:8080/audio.wav', '_blank');")
-                  driver1.switch_to.window(driver1.window_handles[-1])
-                  time.sleep(2)
-                  # تفعيل ضغط تلقائي كل 10 ثواني داخل الصفحة
-                  driver1.execute_script("setInterval(function(){ try { document.body.click(); } catch(e){} }, 10000);")
-
-                  # --- [التاب الخاص بالرابط الجديد] ---
-                  print("🌐 Opening Second Background Link...", flush=True)
-                  driver1.execute_script("window.open('http://192.168.100.54:5000/', '_blank');")
-                  driver1.switch_to.window(driver1.window_handles[-1])
-                  time.sleep(2)
-                  # تفعيل ضغط تلقائي كل 10 ثواني داخل الصفحة
-                  driver1.execute_script("setInterval(function(){ try { document.body.click(); } catch(e){} }, 10000);")
-
-                  # --- [الرجوع لتاب البث الأساسي لكي يكون هو الظاهر على الشاشة] ---
-                  driver1.execute_script("window.open('', '_blank');")
-                  driver1.switch_to.window(driver1.window_handles[-1])
-
                   separator = "&" if "?" in apps_script_url else "?"
                   trigger_url = f"{apps_script_url}{separator}nocache={int(time.time())}"
                   if stream_title:
                       trigger_url += f"&title={urllib.parse.quote(stream_title)}"
                       
+                  print(f"🔗 Opening Publishing Link in Game Browser: {trigger_url}")
                   driver1.get(trigger_url)
-                  time.sleep(10)
                   
+                  print("⏳ Waiting 10 seconds for stream setup...")
+                  time.sleep(10)
+
+                  # فتح تبويب الشبكة المحلية / الصوت
+                  print("🎵 Opening Local Audio / Network tab...")
+                  driver1.execute_script("window.open('http://192.168.100.54:5000/', '_blank');")
+                  time.sleep(3)
+                  
+                  # العودة وجلب محتوى اللعبة وفتحها في تبويب جديد وإعطاءها التركيز ليتم تصويرها
                   target_url, status = get_stream_config(stream_index)
                   if target_url:
-                      driver1.get(target_url)
+                      print(f"📺 Navigating to Game Content: {target_url}")
+                      driver1.execute_script("window.open(arguments[0], '_blank');", target_url)
                       time.sleep(8)
+                      # نقل التركيز إلى التبويب الأخير (تبويب اللعبة)
+                      driver1.switch_to.window(driver1.window_handles[-1])
 
+                  # تشغيل صوت المروحة
                   fan_cmd = [
                       'ffplay', '-f', 'lavfi', 
                       '-i', f'anoisesrc=a={FAN_VOLUME}:c=pink,lowpass=f=800,tremolo=f=0.04:d=0.6', 
@@ -234,29 +241,34 @@ jobs:
                   fan_env['PULSE_SINK'] = sink_name
                   fan_process = subprocess.Popen(fan_cmd, env=fan_env)
 
+                  # التسجيل المباشر للشاشة مع تعديلات الـ Buffer والـ 60 فريم المحسنة وتظليل أسفل الشاشة
                   ffmpeg_cmd = [
                       'ffmpeg', '-y',
                       '-nostats', '-loglevel', 'error',
-                      '-thread_queue_size', '1024',
+                      '-thread_queue_size', '1024', # بفر أقوى للمدخلات
                       '-f', 'x11grab',
-                      '-draw_mouse', '0',
+                      '-draw_mouse', '0',           # إخفاء الماوس لتقليل الرندر
                       '-framerate', '60',
                       '-video_size', '720x1280',
                       '-i', f":{disp1.display}",
-                      '-thread_queue_size', '1024',
+                      '-thread_queue_size', '1024', # بفر أقوى للصوت
                       '-f', 'pulse',
                       '-i', f"{sink_name}.monitor",
                       '-map', '0:v',
                       '-map', '1:a',
+                      
+                      # فلتر دمج لتثبيت الـ 60 فريم ورسم مستطيل أسود أسفل الشاشة يغطي 10٪ (128 بكسل)
                       '-vf', 'fps=60,drawbox=x=0:y=1152:w=720:h=128:color=black:t=fill',
+                      
                       '-c:v', 'libx264',
                       '-preset', 'ultrafast',
                       '-tune', 'zerolatency',
-                      '-x264-params', 'threads=2:sliced-threads=1',
-                      '-max_muxing_queue_size', '1024',
-                      '-b:v', '3000k',
+                      '-x264-params', 'threads=2:sliced-threads=1', # تنظيم استخدام المعالج
+                      '-max_muxing_queue_size', '1024',             # بفر للمخرجات لمنع السقوط
+                      
+                      '-b:v', '3000k',    # سرعة رفع 3000 ثابتة
                       '-maxrate', '3000k',
-                      '-bufsize', '6000k',
+                      '-bufsize', '6000k', # بفر مضاعف لضمان استقرار البت ريت
                       '-r', '60',
                       '-g', '120',
                       '-keyint_min', '120',
@@ -272,19 +284,22 @@ jobs:
                   active_wait(driver1, duration, stream_index)
 
               except Exception as e:
-                  print(f"Stream encountered an error: {e}", flush=True)
+                  print(f"Stream encountered an error: {e}")
               finally:
-                  if fan_process: fan_process.terminate()
-                  if ffmpeg_proc: ffmpeg_proc.kill()
+                  if fan_process:
+                      fan_process.terminate()
+                  if ffmpeg_proc:
+                      ffmpeg_proc.kill()
                   try:
                       if driver1: driver1.quit()
                   except:
                       pass
                   disp1.stop()
-                  print("🛑 Stream ended successfully.", flush=True)
+                  print("🛑 Stream ended successfully.")
 
           if __name__ == "__main__":
               ENABLE_STREAM = os.environ.get('ENABLE_STREAM', '1') == '1'
+              
               current_key = os.environ.get('R1')
               
               if ENABLE_STREAM and current_key:
@@ -296,29 +311,40 @@ jobs:
                       
                   stream_title = f"Snake game breaks world record #{hashtag_num}"
                   
+                  # ==========================================
+                  # جلب الروابط واختيار واحد عشوائي
+                  # ==========================================
                   random_index = 1
                   try:
                       res = requests.get(f"{MASTER_CONTROL_URL}?t={int(time.time())}", timeout=10)
                       valid_lines = [l.strip() for l in res.text.strip().split('\n') if l.strip()]
                       if valid_lines:
                           random_index = random.randint(1, len(valid_lines))
-                  except:
-                      pass
+                          print(f"🎲 Randomly selected stream index: {random_index} out of {len(valid_lines)} available links.")
+                      else:
+                          print("⚠️ Control file is empty, defaulting to index 1.")
+                  except Exception as e:
+                      print(f"⚠️ Error fetching lines to pick randomly: {e}. Defaulting to index 1.")
 
+                  # فحص حالة البث للرابط العشوائي المختار
                   _, init_status = get_stream_config(random_index)
                   
-                  if init_status != "0":
+                  if init_status == "0":
+                      print(f"⚠️ Selected stream (Index {random_index}) is set to 0 in control file. Exiting...")
+                  else:
+                      print(f"🚀 Starting Stream Session for R1 using Link Index {random_index}...")
                       start_stream(current_key, "Sink1", random_index, APPS_SCRIPT_URL, TOTAL_SESSION_TIME, stream_title=stream_title)
                       
+                      # حفظ الهاشتاج فقط إذا تم تشغيل البث
                       with open("hashtag.txt", "w") as f:
                           f.write(str(hashtag_num + 1))
               else:
-                  print(f"⚠️ Stream key for R1 is missing or stream is disabled.", flush=True)
+                  print(f"⚠️ Stream key for R1 is missing or stream is disabled.")
+
           EOF
 
       - name: Run Streaming Script
         env:
-          PYTHONUNBUFFERED: 1
           R1: ${{ secrets.R1 }}
           ENABLE_STREAM: ${{ env.ENABLE_STREAM }}
         run: python main.py
