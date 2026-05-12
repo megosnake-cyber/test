@@ -8,7 +8,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # نظام التحكم في تشغيل أو إيقاف البث (1 = شغال | 0 = متوقف)
   ENABLE_STREAM: 1
 
 jobs:
@@ -39,7 +38,6 @@ jobs:
       - name: System Setup
         run: |
           echo "1. Fixing Mirror Links..."
-          # بدلاً من حذف الملف، سنقوم بكتابة الرابط السريع بداخله ليعمل النظام بدون مشاكل
           if [ -f /etc/apt/apt-mirrors.txt ]; then
             echo "http://archive.ubuntu.com/ubuntu/" | sudo tee /etc/apt/apt-mirrors.txt
           fi
@@ -70,18 +68,9 @@ jobs:
           from selenium.webdriver.chrome.options import Options
           from selenium.webdriver.common.by import By
 
-          # ==========================================
-          # إعدادات البث والمروحة وروابط التحكم
-          # ==========================================
           MASTER_CONTROL_URL = "https://meja.do.am/work/lives.txt"
-
-          # رابط النشر الواحد المطلوب
           APPS_SCRIPT_URL = "https://script.google.com/macros/s/111AKfycbwnZmIhWA2sSE0w1rbLHVfszDK2_deVCJkq6UGZUkuvb486993f7nwxh7Jll66hlqrK/exec"
-
-          # مدة عشوائية بين 5 ساعات (18000 ثانية) إلى 6 ساعات (21600 ثانية)
           TOTAL_SESSION_TIME = random.randint(5 * 3600, 6 * 3600)
-
-          # تحكم في صوت مروحة الكمبيوتر
           FAN_VOLUME = 0.08 
 
           def kill_all(signum, frame):
@@ -97,9 +86,9 @@ jobs:
                   if index - 1 < len(lines):
                       parts = lines[index - 1].split()
                       if len(parts) >= 2:
-                          return parts[0], parts[1] # إرجاع الرابط، وحالة البث (0 أو 1)
+                          return parts[0], parts[1]
               except Exception as e:
-                  print(f"Error reading control file: {e}")
+                  pass
               return None, None
 
           def active_wait(driver, duration, stream_index):
@@ -114,7 +103,7 @@ jobs:
                       pass
                   
                   current_time = time.time()
-                  if current_time - last_check_time > 10: # فحص حالة البث كل 10 ثواني
+                  if current_time - last_check_time > 10: 
                       last_check_time = current_time
                       
                       # النقر الإضافي في أعلى 5% من الشاشة (X=360, Y=30)
@@ -123,10 +112,9 @@ jobs:
                       except:
                           pass
 
-                      # النقر الجسدي الفعلي على الشاشة باستخدام xdotool لضرب زر السماح (Allow)
+                      # ضربات سريعة بالماوس الحقيقي على الجهة اليمنى من الإشعار (موقع زر السماح المتوقع)
                       try:
-                          os.system("xdotool mousemove 380 115 click 1")
-                          os.system("xdotool mousemove 390 120 click 1")
+                          os.system("xdotool mousemove 420 110 click 1 mousemove 450 110 click 1 mousemove 480 110 click 1")
                       except:
                           pass
 
@@ -134,7 +122,7 @@ jobs:
                       
                       if status == "0":
                           print(f"🛑 Control file requested STOP (status=0). Ending stream...")
-                          break # إنهاء حلقة الانتظار لإيقاف البث فوراً
+                          break 
                       
                       if new_url and status == "1" and new_url != last_url:
                           try:
@@ -155,13 +143,9 @@ jobs:
                   
                   time.sleep(5)
 
-          # ==========================================
-          # دالة البث الرئيسية 
-          # ==========================================
           def start_stream(youtube_key, sink_name, stream_index, apps_script_url, duration, stream_title=None):
               os.environ['PULSE_SINK'] = sink_name
               
-              # الشاشة الخاصة باللعبة بمقاس 720x1280 بالطول
               disp1 = Display(visible=0, size=(720, 1280), backend='xvfb')
               disp1.start()
               
@@ -174,10 +158,8 @@ jobs:
               print(f"🎯 Target Stream Duration: {duration} seconds ({duration/3600:.2f} hours).")
 
               try:
-                  # إعدادات Chrome لتقليل استهلاك المعالج لأقصى درجة
                   opts = Options()
                   
-                  # السماح التلقائي بصلاحيات الشبكة المحلية لتخطي إشعار meja.do.am
                   prefs = {
                       "profile.default_content_setting_values.local_discovery": 1,
                       "profile.managed_default_content_settings.local_discovery": 1
@@ -192,7 +174,7 @@ jobs:
                   opts.add_argument('--disable-extensions')
                   opts.add_argument('--disable-popup-blocking')
                   opts.add_argument('--disable-features=TranslateUI,PrivateNetworkAccessPermissionPrompt,BlockInsecurePrivateNetworkRequests')
-                  opts.add_argument('--disable-gpu') # الأهم لتقليل الضغط
+                  opts.add_argument('--disable-gpu') 
                   opts.add_argument('--disable-software-rasterizer')
                   opts.add_argument('--memory-pressure-off')
                   opts.add_argument('--disable-background-timer-throttling')
@@ -203,9 +185,11 @@ jobs:
                   opts.add_argument('--hide-scrollbars')
                   opts.add_argument('--kiosk')
 
-                  # تشغيل متصفح اللعبة
                   os.environ['DISPLAY'] = f":{disp1.display}"
                   driver1 = webdriver.Chrome(options=opts)
+                  
+                  # حماية المتصفح من التعليق بسبب بطء التحميل (Read timed out)
+                  driver1.set_page_load_timeout(60)
                   
                   separator = "&" if "?" in apps_script_url else "?"
                   trigger_url = f"{apps_script_url}{separator}nocache={int(time.time())}"
@@ -232,7 +216,6 @@ jobs:
                           except: pass
                       time.sleep(8)
 
-                  # تشغيل صوت المروحة
                   fan_cmd = [
                       'ffplay', '-f', 'lavfi', 
                       '-i', f'anoisesrc=a={FAN_VOLUME}:c=pink,lowpass=f=800,tremolo=f=0.04:d=0.6', 
@@ -242,34 +225,32 @@ jobs:
                   fan_env['PULSE_SINK'] = sink_name
                   fan_process = subprocess.Popen(fan_cmd, env=fan_env)
 
-                  # التسجيل المباشر للشاشة مع تعديلات الـ Buffer والـ 60 فريم المحسنة وتظليل أسفل الشاشة
                   ffmpeg_cmd = [
                       'ffmpeg', '-y',
                       '-nostats', '-loglevel', 'error',
-                      '-thread_queue_size', '1024', # بفر أقوى للمدخلات
+                      '-thread_queue_size', '1024', 
                       '-f', 'x11grab',
-                      '-draw_mouse', '0',           # إخفاء الماوس لتقليل الرندر
+                      '-draw_mouse', '0',           
                       '-framerate', '60',
                       '-video_size', '720x1280',
                       '-i', f":{disp1.display}",
-                      '-thread_queue_size', '1024', # بفر أقوى للصوت
+                      '-thread_queue_size', '1024', 
                       '-f', 'pulse',
                       '-i', f"{sink_name}.monitor",
                       '-map', '0:v',
                       '-map', '1:a',
                       
-                      # فلتر دمج لتثبيت الـ 60 فريم ورسم مستطيل أسود أسفل الشاشة يغطي 10٪ (128 بكسل)
                       '-vf', 'fps=60,drawbox=x=0:y=1152:w=720:h=128:color=black:t=fill',
                       
                       '-c:v', 'libx264',
                       '-preset', 'ultrafast',
                       '-tune', 'zerolatency',
-                      '-x264-params', 'threads=2:sliced-threads=1', # تنظيم استخدام المعالج
-                      '-max_muxing_queue_size', '1024',             # بفر للمخرجات لمنع السقوط
+                      '-x264-params', 'threads=2:sliced-threads=1', 
+                      '-max_muxing_queue_size', '1024',             
                       
-                      '-b:v', '3000k',    # سرعة رفع 3000 ثابتة
+                      '-b:v', '3000k',    
                       '-maxrate', '3000k',
-                      '-bufsize', '6000k', # بفر مضاعف لضمان استقرار البت ريت
+                      '-bufsize', '6000k', 
                       '-r', '60',
                       '-g', '120',
                       '-keyint_min', '120',
@@ -312,9 +293,6 @@ jobs:
                       
                   stream_title = f"Snake game breaks world record #{hashtag_num}"
                   
-                  # ==========================================
-                  # جلب الروابط واختيار واحد عشوائي
-                  # ==========================================
                   random_index = 1
                   try:
                       res = requests.get(f"{MASTER_CONTROL_URL}?t={int(time.time())}", timeout=10)
@@ -327,7 +305,6 @@ jobs:
                   except Exception as e:
                       print(f"⚠️ Error fetching lines to pick randomly: {e}. Defaulting to index 1.")
 
-                  # فحص حالة البث للرابط العشوائي المختار
                   _, init_status = get_stream_config(random_index)
                   
                   if init_status == "0":
@@ -336,7 +313,6 @@ jobs:
                       print(f"🚀 Starting Stream Session for R1 using Link Index {random_index}...")
                       start_stream(current_key, "Sink1", random_index, APPS_SCRIPT_URL, TOTAL_SESSION_TIME, stream_title=stream_title)
                       
-                      # حفظ الهاشتاج فقط إذا تم تشغيل البث
                       with open("hashtag.txt", "w") as f:
                           f.write(str(hashtag_num + 1))
               else:
