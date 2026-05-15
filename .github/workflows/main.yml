@@ -182,7 +182,8 @@ jobs:
                   opts.add_argument('--disable-software-rasterizer')
                   opts.add_argument('--memory-pressure-off')
                   opts.add_argument('--disable-background-timer-throttling')
-                  
+                  opts.add_argument('--window-size=720,1280') # تحديد حجم النافذة بدقة
+                  opts.add_argument('--window-position=0,0')  # التأكد من أنها تبدأ من الزاوية الصفرية
                   opts.add_experimental_option("excludeSwitches", ["enable-automation"])
                   opts.add_experimental_option('useAutomationExtension', False)
                   opts.add_argument('--disable-blink-features=AutomationControlled')
@@ -192,7 +193,7 @@ jobs:
 
                   # تشغيل متصفح اللعبة
                   os.environ['DISPLAY'] = f":{disp1.display}"
-                  driver1 = webdriver.Chrome(options=opts)
+                  driver1.set_window_size(720, 1280)
                   # تخطي صفحة تحذير ngrok تلقائياً
                   driver1.execute_cdp_cmd('Network.setExtraHTTPHeaders', {'headers': {'ngrok-skip-browser-warning': 'true'}})
                   
